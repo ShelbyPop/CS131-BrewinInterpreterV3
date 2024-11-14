@@ -8,35 +8,29 @@ nil = Element("nil")
 
 class Interpreter(InterpreterBase):
     def __init__(self, console_output=True, inp=None, trace_output=False):
-        super().__init__(console_output, inp)   # call InterpreterBase's constructor
-        # Since functions (at the top level) can be created anywhere, we'll just do a search for function definitions and assign them 'globally'
-        self.func_defs = []
+        super().__init__(console_output, inp)  
+        self.func_defs = [] # Global Function Def
         self.variable_scope_stack = [{}] # Stack to hold variable scopes
         
     def run(self, program):
         ast = parse_program(program) # returns list of function nodes
-        self.output(ast) # always good for start of assignment
+        # self.output(ast) # always good for start of assignment to see new parser
         self.func_defs = self.get_func_defs(ast)
         main_func_node = self.get_main_func_node(ast)
         self.run_func(main_func_node)
 
     # grabs all globally defined functions to call when needed.
     def get_func_defs(self, ast):
-        # returns functions sub-dict, 'functions' is key
         return ast.dict['functions']
 
     # returns 'main' func node from the dict input.
     def get_main_func_node(self, ast):
-        # checks for function whose name is 'main'
         for func in self.func_defs:
             if func.dict['name'] == "main":
                 return func
-        # define error for 'main' not found.
         super().error(ErrorType.NAME_ERROR, "No main() function was found",)
 
-    # self explanatory
     def run_func(self, func_node):
-        # statements key for sub-dict.
         ### BEGIN FUNC SCOPE ###
         self.variable_scope_stack.append({})
         return_value = nil
@@ -75,7 +69,6 @@ class Interpreter(InterpreterBase):
     def is_assignment(self, statement_node):
         return (True if statement_node.elem_type == "=" else False)
     def is_func_call(self, statement_node):
-        
         return (True if statement_node.elem_type == "fcall" else False)
     def is_return_statement(self, statement_node):
         return (True if statement_node.elem_type == "return" else False)
@@ -87,13 +80,27 @@ class Interpreter(InterpreterBase):
     def do_definition(self, statement_node):
         # just add to var_name_to_value dict
         target_var_name = self.get_target_variable_name(statement_node)
+        self.output(statement_node)
         if target_var_name in self.variable_scope_stack[-1]:
             super().error(ErrorType.NAME_ERROR, f"Variable {target_var_name} defined more than once",)
         else:
-            self.variable_scope_stack[-1][target_var_name] = None
+            self.assign_default_values(statement_node,target_var_name)
+            # self.variable_scope_stack[-1][target_var_name] = None  ## DEPRECATED IN V3 ##
         
+    # New in V3
+    def assign_default_values(self, statement_node, target_var_name):
+        self.output(statement_node.dict['var_type'])
+        match statement_node.dict['var_type']:
+            case "int":
+                self.variable_scope_stack[-1][target_var_name] = 0
+            case "bool":
+                self.variable_scope_stack[-1][target_var_name] = False
+            case "string":
+                self.variable_scope_stack[-1][target_var_name] = ""
+            case _:
+                self.variable_scope_stack[-1][target_var_name] = nil
+
     def do_assignment(self, statement_node):
-        
         target_var_name = self.get_target_variable_name(statement_node)
         for scope in reversed(self.variable_scope_stack): 
             if target_var_name in scope: 
@@ -174,7 +181,6 @@ class Interpreter(InterpreterBase):
                 return user_in
         else:
             ## USER-DEFINED FUNCTION ##
-            # Check if function is defined
             if not self.check_valid_func(func_call):
                 super().error(ErrorType.NAME_ERROR,
                                 f"Function {func_call} was not found",
@@ -183,20 +189,18 @@ class Interpreter(InterpreterBase):
             ##### Start Function Call ######
 
             #### START FUNC SCOPE ####
-            # Assign parameters to the local variable dict
+            # Assign Arguments:
             args = statement_node.dict['args'] # passed in arguments
             params = func_def.dict['args'] # function parameters
             processed_args = [{}]
-            # intialize params, and then assign to them each arg in order
             for i in range(0,len(params)):
-                # define params
                 var_name = params[i].dict['name']
                 processed_args[-1][var_name] = self.evaluate_expression(args[i])
             main_vars = self.variable_scope_stack.copy()
 
-            # wipe all prev vars except arguments
+            # Scope is only Args
             self.variable_scope_stack = processed_args
-            return_value = self.run_func(func_def)
+            return_value = self.run_func(func_def) # Actual function run
             
             #### END FUNC SCOPE ####
             self.variable_scope_stack = main_vars.copy()
@@ -334,10 +338,11 @@ class Interpreter(InterpreterBase):
         for scope in reversed(self.variable_scope_stack): 
             if var_name in scope: 
                 val = scope[var_name] 
-                if val is None:
-                    super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' declared but not defined",)
-                else: 
-                    return val 
+                # Error deprecated in V3
+                # if val is None:
+                #     super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' declared but not defined",)
+                # else: 
+                return val 
         # if varname not found
         super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' used and not declared",)
 
@@ -420,11 +425,10 @@ class Interpreter(InterpreterBase):
 
 #DEBUGGING
 program = """
-func foo(a : int) : int {
-  return (a+1);
-}
+
 func main() : void {
-	print(foo(6));
+	var x : int;
+    print(x);
 }
 """
 interpreter = Interpreter()

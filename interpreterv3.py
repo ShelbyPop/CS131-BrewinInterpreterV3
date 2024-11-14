@@ -39,9 +39,18 @@ class Interpreter(InterpreterBase):
             # check if statement results in a return, and return a return statement with 
             if isinstance(return_value, Element) and return_value.elem_type == "return":
                 # Return the value, dont need to continue returning.
+                ## check type validity ##
                 self.variable_scope_stack.pop()
-                return return_value.get("value")
+                ret_value = self.check_coercion(eval(func_node.dict['return_type']), return_value) # type coercion bool->int
+                self.check_same_type(eval(func_node.dict['return_type']), type(return_value.get("value")), "func_ret")
+                # self.output(func_node.dict['return_type'])
+                return ret_value
             if return_value is not nil:
+                ## check type validity ##
+                #eval() converts string to python type class (actually cool)
+                return_value = self.check_coercion(eval(func_node.dict['return_type']), return_value) # type coercion bool->int
+                #self.output(return_value)
+                self.check_same_type(eval(func_node.dict['return_type']), type(return_value), "func_ret")
                 break
         
         ### END FUNC SCOPE ###
@@ -80,7 +89,7 @@ class Interpreter(InterpreterBase):
     def do_definition(self, statement_node):
         # just add to var_name_to_value dict
         target_var_name = self.get_target_variable_name(statement_node)
-        self.output(statement_node)
+        #self.output(statement_node)
         if target_var_name in self.variable_scope_stack[-1]:
             super().error(ErrorType.NAME_ERROR, f"Variable {target_var_name} defined more than once",)
         else:
@@ -89,7 +98,7 @@ class Interpreter(InterpreterBase):
         
     # New in V3
     def assign_default_values(self, statement_node, target_var_name):
-        self.output(statement_node.dict['var_type'])
+        #self.output(statement_node.dict['var_type'])
         match statement_node.dict['var_type']:
             case "int":
                 self.variable_scope_stack[-1][target_var_name] = 0
@@ -107,6 +116,11 @@ class Interpreter(InterpreterBase):
                 # Does not evaluate until after checking if valid variable
                 source_node = self.get_expression_node(statement_node)
                 resulting_value = self.evaluate_expression(source_node)
+
+                ## check type validity ## 
+                resulting_value = self.check_coercion(type(scope[target_var_name]), resulting_value) # type coercion bool->int
+                self.check_same_type(type(scope[target_var_name]), type(resulting_value), "assignment")
+                
                 scope[target_var_name] = resulting_value 
                 return
         super().error(ErrorType.NAME_ERROR, f"variable used and not declared: {target_var_name}",)
@@ -135,10 +149,10 @@ class Interpreter(InterpreterBase):
             output = ""
             # loop through each arg in args list for print, evaluate their expressions, concat, and output.
             for arg in statement_node.dict['args']:
-                eval = self.evaluate_expression(arg)
+                eval_ = self.evaluate_expression(arg)
                 # note, cant concat unles its str type
-                if type(eval) is bool:
-                    if eval:
+                if type(eval_) is bool:
+                    if eval_:
                         output += "true"
                     else: 
                         output += "false"
@@ -195,7 +209,13 @@ class Interpreter(InterpreterBase):
             processed_args = [{}]
             for i in range(0,len(params)):
                 var_name = params[i].dict['name']
-                processed_args[-1][var_name] = self.evaluate_expression(args[i])
+                var_type = params[i].dict['var_type']
+                arg_value = self.evaluate_expression(args[i])
+                ## check type validity ##
+                # self.output(eval(var_type))
+                arg_value = self.check_coercion(eval(var_type), arg_value) # type coercion bool->int
+                self.check_same_type(eval(var_type), type(arg_value), "parameter")
+                processed_args[-1][var_name] = arg_value
             main_vars = self.variable_scope_stack.copy()
 
             # Scope is only Args
@@ -204,6 +224,7 @@ class Interpreter(InterpreterBase):
             
             #### END FUNC SCOPE ####
             self.variable_scope_stack = main_vars.copy()
+
             return return_value          
             ##### End Function Call ######
     
@@ -333,7 +354,6 @@ class Interpreter(InterpreterBase):
     def get_value_of_variable(self, expression_node): 
         if expression_node == 'nil':
             return nil
-        
         var_name = expression_node.dict['name']
         for scope in reversed(self.variable_scope_stack): 
             if var_name in scope: 
@@ -421,13 +441,51 @@ class Interpreter(InterpreterBase):
                 return (eval1 and eval2)
             case '||':
                 return (eval1 or eval2)
+            
+    ## Type Checking Functions ##
+    # coerce int to bool (if arg1 is type bool)
+    def check_coercion(self, arg1, arg2):
+        if (arg1 is bool) and isinstance(arg2, int):
+            return bool(arg2)
+        else:
+            return arg2
+
+    # type1 - var type, param type, func return type
+    # type2 - value/expression type
+    def check_same_type(self, type1, type2, area):
+        # Error for type checking: "in assignment", "on formal parameter {var_name}", "inconsistent with function return type {int}"
+        ### No type coercion from int->bool for now ###
+        if area == "assignment":
+            if type1 != type2:
+                super().error(ErrorType.TYPE_ERROR, f"Type mismatch {type1.__name__} vs {type2.__name__} in assignment",)
+            else:
+                return
+        if area == "parameter":
+            if type1 != type2:
+                super().error(ErrorType.TYPE_ERROR, f"Type mismatch on formal parameter with type: {type1.__name__}",)
+            else:
+                return
+        if area == "func_ret":
+            if type1 != type2:
+                super().error(ErrorType.TYPE_ERROR, f"Function return type {type1.__name__} is inconsistent with function's return type {type2.__name__}",)
+            else:
+                return
+    
+    
+    
+
+
+
     # No more functions remain... for now... :)
 
 #DEBUGGING
 program = """
-
+func foo(a : bool) : bool {
+    return(a);
+}
 func main() : void {
-	var x : int;
+	var x : bool;
+    x = 0;
     print(x);
 }
 """

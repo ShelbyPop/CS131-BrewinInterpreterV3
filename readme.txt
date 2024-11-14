@@ -1,1 +1,2 @@
-Just submitting V2 base to test.
+- Added default values to vars
+- Added type checking and type coercion (bool->int)

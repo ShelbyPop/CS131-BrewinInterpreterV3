@@ -10,11 +10,13 @@ class Interpreter(InterpreterBase):
     def __init__(self, console_output=True, inp=None, trace_output=False):
         super().__init__(console_output, inp)  
         self.func_defs = [] # Global Function Def
+        self.struct_defs = [] # Global Struct Def
         self.variable_scope_stack = [{}] # Stack to hold variable scopes
         
     def run(self, program):
         ast = parse_program(program) # returns list of function nodes
-        # self.output(ast) # always good for start of assignment to see new parser
+        #self.output(ast) # always good for start of assignment to see new parser
+        self.struct_defs = self.get_struct_defs(ast)
         self.func_defs = self.get_func_defs(ast)
         main_func_node = self.get_main_func_node(ast)
         self.run_func(main_func_node)
@@ -22,6 +24,12 @@ class Interpreter(InterpreterBase):
     # grabs all globally defined functions to call when needed.
     def get_func_defs(self, ast):
         return ast.dict['functions']
+
+    # grabs all globally defined struct defs
+    def get_struct_defs(self, ast):
+        #for item in ast.dict['structs']:
+            #self.output(item)
+        return ast.dict['structs']
 
     # returns 'main' func node from the dict input.
     def get_main_func_node(self, ast):
@@ -93,12 +101,14 @@ class Interpreter(InterpreterBase):
         if target_var_name in self.variable_scope_stack[-1]:
             super().error(ErrorType.NAME_ERROR, f"Variable {target_var_name} defined more than once",)
         else:
+            
             self.assign_default_values(statement_node,target_var_name)
             # self.variable_scope_stack[-1][target_var_name] = None  ## DEPRECATED IN V3 ##
         
     # New in V3
     def assign_default_values(self, statement_node, target_var_name):
         #self.output(statement_node.dict['var_type'])
+        self.output(statement_node)
         match statement_node.dict['var_type']:
             case "int":
                 self.variable_scope_stack[-1][target_var_name] = 0
@@ -109,15 +119,30 @@ class Interpreter(InterpreterBase):
             case _:
                 self.variable_scope_stack[-1][target_var_name] = nil
 
+    def struct_assign_default_values(self, statement_node, field_vars, field):
+        #self.output(statement_node.dict['var_type'])
+        self.output(statement_node)
+        match statement_node.dict['var_type']:
+            case "int":
+                field_vars[field] = 0
+            case "bool":
+                field_vars[field] = False
+            case "string":
+                field_vars[field] = ""
+            case _:
+                field_vars[field] = nil
+
     def do_assignment(self, statement_node):
+        #self.output(statement_node)
         target_var_name = self.get_target_variable_name(statement_node)
         for scope in reversed(self.variable_scope_stack): 
             if target_var_name in scope: 
                 # Does not evaluate until after checking if valid variable
                 source_node = self.get_expression_node(statement_node)
                 resulting_value = self.evaluate_expression(source_node)
-
+                #self.output(resulting_value)
                 ## check type validity ## 
+                #self.output(scope[target_var_name])
                 resulting_value = self.check_coercion(type(scope[target_var_name]), resulting_value) # type coercion bool->int
                 self.check_same_type(type(scope[target_var_name]), type(resulting_value), "assignment")
                 
@@ -326,9 +351,12 @@ class Interpreter(InterpreterBase):
         return True if (expression_node.elem_type in ['==', '<', '<=', '>', '>=', '!=']) else False
     def is_binary_boolean_operator(self, expression_node):
         return True if (expression_node.elem_type in ['&&', '||']) else False
+    def is_struct_def(self, expression_node):
+        return True if (expression_node.elem_type == "new") else False
 
     # basically pseudcode, self-explanatory
     def evaluate_expression(self, expression_node):
+        #self.output(expression_node)
         if self.is_value_node(expression_node):
             return self.get_value(expression_node)
         elif self.is_variable_node(expression_node):
@@ -343,6 +371,8 @@ class Interpreter(InterpreterBase):
             return self.evaluate_binary_boolean_operator(expression_node)
         elif self.is_func_call(expression_node):
             return self.do_func_call(expression_node)
+        elif self.is_struct_def(expression_node):
+            return self.do_struct_def(expression_node)
 
     def get_value(self, expression_node):
         # Returns value assigned to key 'val'
@@ -366,6 +396,27 @@ class Interpreter(InterpreterBase):
         # if varname not found
         super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' used and not declared",)
 
+    def do_struct_def(self,expression_node):
+        struct_name = expression_node.dict['var_type']
+        # find the struct def
+        for _def in self.struct_defs:
+            struct_def = _def if (_def.dict['name'] == struct_name) else nil
+            if (struct_def is not nil):
+                break
+        # if we never found a struct_def
+        if struct_def is nil:
+            super().error(ErrorType.TYPE_ERROR, f"struct '{struct_name}' used but not defined",) ##TODO: FIX ERROR TYPE?
+        
+        return self.evaluate_struct_def(struct_def) # do struct assignment
+
+    # Evalautes a struct def by returning a dict of variables.
+    def evaluate_struct_def(self,struct_def):
+        field_vars = {}
+
+        for fielddef in struct_def.dict['fields']:
+            self.struct_assign_default_values(fielddef, field_vars, fielddef.dict['name'])
+        
+        return field_vars
 
     # + or -
     def evaluate_binary_operator(self, expression_node):
@@ -457,6 +508,7 @@ class Interpreter(InterpreterBase):
         ### No type coercion from int->bool for now ###
         if area == "assignment":
             if type1 != type2:
+
                 super().error(ErrorType.TYPE_ERROR, f"Type mismatch {type1.__name__} vs {type2.__name__} in assignment",)
             else:
                 return
@@ -470,23 +522,30 @@ class Interpreter(InterpreterBase):
                 super().error(ErrorType.TYPE_ERROR, f"Function return type {type1.__name__} is inconsistent with function's return type {type2.__name__}",)
             else:
                 return
-    
-    
-    
-
-
 
     # No more functions remain... for now... :)
 
 #DEBUGGING
 program = """
-func foo(a : bool) : bool {
-    return(a);
+struct Person {
+  name: string;
+  age: int;
+  student: bool;
 }
+
+struct Person2 {
+  name: string;
+  age: int;
+  student: bool;
+}
+
 func main() : void {
-	var x : bool;
-    x = 0;
-    print(x);
+  var test: bool;
+  test = false;
+  var p: Person;
+  p = new Person;
+
+  print("hi!");
 }
 """
 interpreter = Interpreter()

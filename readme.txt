@@ -14,3 +14,5 @@
 - Added type coercion
 - added basic struct field functionality (read and write)
 - Need to add type checking to include struct_names
+- Added Strict Struct typing (removed duck typing)
+    - Removed pass by obj ref structs (need to add back)

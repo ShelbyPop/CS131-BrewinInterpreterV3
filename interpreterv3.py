@@ -6,6 +6,13 @@ from intbase import *
 
 nil = Element("nil")
 
+# Way to differentiate between a specific struct and just a value
+# The probable "correct" way is to make every variable an object like this, but I felt itd require too much rewriting to pull out the value, so I decided against it.
+class StructObject():
+    def __init__(self, fields, _type):
+        self._fields = fields
+        self._type = _type
+
 class Interpreter(InterpreterBase):
     def __init__(self, console_output=True, inp=None, trace_output=False):
         super().__init__(console_output, inp)   # call InterpreterBase's constructor
@@ -57,24 +64,15 @@ class Interpreter(InterpreterBase):
                 # Return the value, dont need to continue returning.
                 self.variable_scope_stack.pop()
                 return_value = return_value.get("value")
-                # Perform type checking
-                if return_value is nil:
-                    return_value = self.get_default_value(func_ret_type)
-                    #self.output(f"return value is: {return_value}, function return type is: {func_ret_type}")
-
-                if func_ret_type == "bool":
-                    return_value = self.check_coercion(return_value)
-                if not self.check_valid_type(return_value, func_ret_type):
-                    #self.output(return_value)
-                    super().error(ErrorType.TYPE_ERROR, f"Return type misaligns with functions return type: {func_ret_type}",)
+                return_value = self.do_func_typecheck(func_ret_type, return_value) # Perform type checking
                 return return_value
             if return_value is not nil:
                 break
         
         ### END FUNC SCOPE ###
         self.variable_scope_stack.pop()
-        if return_value is nil:
-            return self.get_default_value(func_ret_type)
+        return_value = self.do_func_typecheck(func_ret_type, return_value) # Perform type checking
+        #self.output(return_value)
         return return_value
     
     # Let's define the default values here, and just assign in the definition.
@@ -153,19 +151,21 @@ class Interpreter(InterpreterBase):
                 curr = scope[target_var_name]
                 #self.output(curr)
                 for field in fields: # traverse excluding last field
-                    if type(curr['value']).__name__ == "dict" and field in curr['value']:
-                        curr = curr['value'][field]
+                    if (type(curr['value']) == StructObject) and (field in curr['value']._fields):
+                        curr = curr['value']._fields[field]
                     else:
                         super().error(ErrorType.NAME_ERROR, f"Field: {field} was not found",)
                 #last_field = fields[-1]  
-                var_type = curr['type']
+                var_type = curr['type'] # type check against field type, not struct type
                 ## Perform Type Checking ##
+                resulting_value = self.check_coercion(resulting_value) if var_type == "bool" else resulting_value
+                if type(resulting_value) is bool:
+                    curr['type'] = 'bool'
                 if self.check_valid_type(resulting_value, var_type):
-                    # only set value if valid (allows int->bool)
                     curr['value'] = resulting_value
                     return
                 else:
-                    super().error(ErrorType.NAME_ERROR, f"Invalid type {var_type} assigned to {fields[-1]}",)
+                    super().error(ErrorType.NAME_ERROR, f"Invalid type {type(resulting_value).__name__} assigned to variable with type {var_type}",)
         super().error(ErrorType.NAME_ERROR, f"variable used and not declared: {target_var_name}",)
 
 
@@ -260,6 +260,7 @@ class Interpreter(InterpreterBase):
                 arg_value = self.evaluate_expression(args[i])
                 #self.output(args[i])
                 arg_value = self.check_coercion(arg_value) if var_type == "bool" else arg_value
+                arg_type = arg_value._type if type(arg_value) is StructObject else type(arg_value) # only used for debugging really
                 # Perform Type Checking..
                 if self.check_valid_type(arg_value, var_type):
                     processed_args[-1][var_name] = {
@@ -267,7 +268,7 @@ class Interpreter(InterpreterBase):
                         'type' : var_type
                     }
                 else:
-                    super().error(ErrorType.TYPE_ERROR, f"Invalid arg type given to formal parameter {var_name}",)
+                    super().error(ErrorType.TYPE_ERROR, f"Invalid arg type {arg_type} given to formal parameter {var_name} of type {var_type}",)
 
             main_vars = self.variable_scope_stack.copy()
 
@@ -291,8 +292,7 @@ class Interpreter(InterpreterBase):
     def do_if_statement(self, statement_node):
         condition = statement_node.dict['condition']
         condition = self.evaluate_expression(condition)
-        if type(condition).__name__ == "int":
-            condition = self.check_coercion(condition)
+        condition = self.check_coercion(condition)
         # error if condition is non-boolean
         if type(condition).__name__ != "bool":
             super().error(ErrorType.TYPE_ERROR, "Condition is not of type bool",)
@@ -338,8 +338,7 @@ class Interpreter(InterpreterBase):
         
         # Run the loop again (exits on condition false)
         while self.evaluate_expression(condition):
-            if type(condition).__name__ == "int":
-                condition = self.check_coercion(condition)
+            condition = self.check_coercion(condition)
             if type(self.evaluate_expression(condition)) is not bool:
                 super().error(ErrorType.TYPE_ERROR, "Condition is not of type bool",)
             
@@ -427,8 +426,8 @@ class Interpreter(InterpreterBase):
                 val = scope[var_name]['value']
                 # If fields (a.next or a.next.next, etc.) walk the tree of vars in scope
                 for field in fields:
-                    if type(val).__name__ == "dict" and field in val:
-                        val = val[field]['value']
+                    if (type(val) is StructObject) and (field in val._fields):
+                        val = val._fields[field]['value']
                     else:
                         super().error(ErrorType.NAME_ERROR, f"Field: '{field}' not found in struct.",)
                 return val
@@ -445,7 +444,7 @@ class Interpreter(InterpreterBase):
         if (expression_node.elem_type != "+") and not (type(eval1) == int and type(eval2) == int):
             super().error(ErrorType.TYPE_ERROR, "Arguments must be of type 'int'.",)
         if (expression_node.elem_type == "+") and not ((type(eval1) == int and type(eval2) == int) or (type(eval1) == str and type(eval2) == str)):
-            #self.output(f"eval1: {eval1} eval2: {eval2}")
+            self.output(f"eval1: {eval1} eval2: {eval2}")
             super().error(ErrorType.TYPE_ERROR, "Types for + must be both of type int or string.",)
         if expression_node.elem_type == "+":
             return (eval1 + eval2)
@@ -466,8 +465,7 @@ class Interpreter(InterpreterBase):
                 super().error(ErrorType.TYPE_ERROR, "'negation' can only be used on integer values.",)
             return -(eval)
         if expression_node.elem_type == "!":
-            if type(eval).__name__ == "int":
-                eval = self.check_coercion(eval)
+            eval = self.check_coercion(eval)
             if not (type(eval).__name__ == "bool"):
                 super().error(ErrorType.TYPE_ERROR, "'Not' can only be used on boolean values.",)
             return not (eval)
@@ -536,7 +534,8 @@ class Interpreter(InterpreterBase):
                 'value' : self.get_default_value(field_type),
                 'type' : field_type                
             }
-        return struct_fields
+        # Defines the struct as a StructObject
+        return StructObject(struct_fields, struct_name)
 
     ## Type Checking Functions ##
     # Check if a value holds the correct type for what's needed
@@ -551,10 +550,12 @@ class Interpreter(InterpreterBase):
             return (type(val).__name__ == "bool") or (type(val).__name__ == "int")
         elif needs_type == "string":
             return type(val).__name__ == "str"
+        elif needs_type == "void":
+            return val == nil
         elif needs_type in struct_def_names:
-            # Either the val is nil, or it's a dict of field_vars
-            # TODO: this is incorrect, its just for sanity im keeping it like this now.
-            return (val is nil) or (type(val) is dict)
+            # Either the val is nil, or it's an assigned struct obj with fields & type
+            # This prevents Duck Typing (need to strictly type against structs like C)
+            return (val is nil) or ((type(val) is StructObject) and (val._type == needs_type))
         return False
     
     def check_coercion(self, val):
@@ -562,7 +563,16 @@ class Interpreter(InterpreterBase):
             return bool(val)
         else:
             return val
-
+    
+    def do_func_typecheck(self, func_ret_type, return_value):
+        #self.output(f"return type: {func_ret_type}, returns value: {return_value}")
+        if return_value is nil:
+            return_value = self.get_default_value(func_ret_type)
+        if func_ret_type == "bool":
+            return_value = self.check_coercion(return_value)
+        if not self.check_valid_type(return_value, func_ret_type):
+            super().error(ErrorType.TYPE_ERROR, f"Return type misaligns with functions return type: {func_ret_type}",)
+        return return_value
     # No more functions remain... for now... :)
 
 #DEBUGGING
@@ -573,17 +583,16 @@ struct dog {
 }
 
 func foo(d: dog) : dog {  /* d holds the same object reference that the koda variable holds */
-  d.bark = 10;
-  
+  /*d.bark = 10;*/
+  return d;
 }
 
  func main() : void {
   var koda: dog;
   var kippy: dog;
   koda = new dog;
-  foo(koda);	/* kippy holds the same object reference as koda */
-  print(koda.bark);
-
+  kippy = foo(koda);	/* kippy holds the same object reference as koda */
+  print(kippy.bark);
 }
 """
 interpreter = Interpreter()

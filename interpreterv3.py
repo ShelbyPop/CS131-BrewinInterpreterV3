@@ -155,6 +155,7 @@ class Interpreter(InterpreterBase):
                 # only for if resulting value is coming from a struct
                 if type(resulting_value) is tuple:
                     result_type = resulting_value[1] # Checks for struct type
+                    resulting_value = resulting_value[0]
                 else:
                     result_type = type(resulting_value).__name__
                     
@@ -399,14 +400,32 @@ class Interpreter(InterpreterBase):
             return nil
         return expression_node.dict['val']
 
+    def is_field_var(self, var_name):
+        return '.' in var_name
+
     # returns value under the variable name provided.
     def get_value_of_variable(self, expression_node): 
         if expression_node == 'nil':
             return nil
         var_name = expression_node.dict['name']
+        is_field_var  = False
+
+        # Check if field call
+        if (self.is_field_var(var_name)):
+            is_field_var = True
+            split_var = var_name.split('.')
+            var_name = split_var[0]
+            field = split_var[1]
+        
+
         for scope in reversed(self.variable_scope_stack): 
             if var_name in scope: 
                 val = scope[var_name]['value']
+
+                if is_field_var:
+                    val = val[field]['value']
+                
+                
                 # Error deprecated in V3
                 # if val is None:
                 #     super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' declared but not defined",)
@@ -553,28 +572,26 @@ class Interpreter(InterpreterBase):
     # No more functions remain... for now... :)
 
 #DEBUGGING
-program = """
-struct Person {
-  name: string;
-  age: int;
-  student: bool;
-}
+# program = """
+# struct Person {
+#   name: string;
+#   age: int;
+#   student: bool;
+# }
 
-struct Person2 {
-  name: string;
-  age: int;
-  student: bool;
-}
+# struct Person2 {
+#   name: string;
+#   age: int;
+#   student: bool;
+# }
 
-func main() : void {
-  var test: bool;
-  test = false;
-  var p: Person;
-  p = new Person;
-  print(1 || false);
-  print(false || 1);
-  print("hi!");
-}
-"""
-interpreter = Interpreter()
-interpreter.run(program)
+# func main() : void {
+#   var test: bool;
+#   test = false;
+#   var p: Person;
+#   p = new Person;
+#   print(p.student);
+# }
+# """
+# interpreter = Interpreter()
+# interpreter.run(program)

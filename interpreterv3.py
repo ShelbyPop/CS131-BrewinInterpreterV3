@@ -501,6 +501,10 @@ class Interpreter(InterpreterBase):
     def evaluate_binary_boolean_operator(self, expression_node):
         eval1 = self.evaluate_expression(expression_node.dict['op1'])
         eval2 = self.evaluate_expression(expression_node.dict['op2'])
+        # coerce both ways
+        eval1 = self.check_coercion(type(eval2).__name__, eval1)
+        eval2 = self.check_coercion(type(eval1).__name__, eval2)
+
         if (type(eval1) is not bool) or (type(eval2) is not bool):
             super().error(ErrorType.TYPE_ERROR, f"Comparison args for {expression_node.elem_type} must be of same type bool.",)
         # forces evaluation on both (strict evaluation)
@@ -567,7 +571,8 @@ func main() : void {
   test = false;
   var p: Person;
   p = new Person;
-  print(p.name);
+  print(1 || false);
+  print(false || 1);
   print("hi!");
 }
 """

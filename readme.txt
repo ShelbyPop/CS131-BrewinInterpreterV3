@@ -12,3 +12,5 @@
 - Added basic struct functionality
 - Added default return values
 - Added type coercion
+- added basic struct field functionality (read and write)
+- Need to add type checking to include struct_names

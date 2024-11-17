@@ -60,7 +60,7 @@ class Interpreter(InterpreterBase):
                 # Perform type checking
                 if return_value is nil:
                     return_value = self.get_default_value(func_ret_type)
-                    self.output(f"return value is: {return_value}, function return type is: {func_ret_type}")
+                    #self.output(f"return value is: {return_value}, function return type is: {func_ret_type}")
 
                 if func_ret_type == "bool":
                     return_value = self.check_coercion(return_value)
@@ -80,13 +80,16 @@ class Interpreter(InterpreterBase):
     # Let's define the default values here, and just assign in the definition.
     # Switching to if else to do 'type_name in self.struct_defs'
     def get_default_value(self, type_name):
+        struct_def_names = []
+        for _def in self.struct_defs:
+            struct_def_names.append(_def.dict['name'])
         if type_name == "int":
             return 0
         elif type_name == "bool":
             return False
         elif type_name == "string":
             return ""
-        elif type_name in self.struct_defs:
+        elif type_name in struct_def_names:
             return nil
         elif type_name == "void":
             return nil
@@ -139,18 +142,30 @@ class Interpreter(InterpreterBase):
         target_var_name = self.get_target_variable_name(statement_node)
         source_node = self.get_expression_node(statement_node)
         resulting_value = self.evaluate_expression(source_node)
-
+        
+        fields = target_var_name.split('.')
+        target_var_name = fields[0]
+        fields = fields[1:]
+            
         for scope in reversed(self.variable_scope_stack): 
             if target_var_name in scope: 
                 # Does not evaluate until after checking if valid variable
-                var_type = scope[target_var_name]['type']
+                curr = scope[target_var_name]
+                #self.output(curr)
+                for field in fields: # traverse excluding last field
+                    if type(curr['value']).__name__ == "dict" and field in curr['value']:
+                        curr = curr['value'][field]
+                    else:
+                        super().error(ErrorType.NAME_ERROR, f"Field: {field} was not found",)
+                #last_field = fields[-1]  
+                var_type = curr['type']
                 ## Perform Type Checking ##
                 if self.check_valid_type(resulting_value, var_type):
                     # only set value if valid (allows int->bool)
-                    scope[target_var_name]['value'] = resulting_value
+                    curr['value'] = resulting_value
                     return
                 else:
-                    super().error(ErrorType.NAME_ERROR, f"Invalid type {var_type} assigned to {target_var_name}",)
+                    super().error(ErrorType.NAME_ERROR, f"Invalid type {var_type} assigned to {fields[-1]}",)
         super().error(ErrorType.NAME_ERROR, f"variable used and not declared: {target_var_name}",)
 
 
@@ -186,7 +201,7 @@ class Interpreter(InterpreterBase):
                     else: 
                         output += "false"
                 else:
-                    output += str(self.evaluate_expression(arg))
+                    output += str(eval)
             # THIS IS 1/3 OF ONLY REAL SELF.OUTPUT
             self.output(output)
             return nil
@@ -403,9 +418,20 @@ class Interpreter(InterpreterBase):
         if expression_node == 'nil':
             return nil
         var_name = expression_node.dict['name']
+        fields = var_name.split('.')
+        var_name = fields[0]
+        fields = fields[1:]
+            
         for scope in reversed(self.variable_scope_stack): 
             if var_name in scope: 
-                return scope[var_name]['value']
+                val = scope[var_name]['value']
+                # If fields (a.next or a.next.next, etc.) walk the tree of vars in scope
+                for field in fields:
+                    if type(val).__name__ == "dict" and field in val:
+                        val = val[field]['value']
+                    else:
+                        super().error(ErrorType.NAME_ERROR, f"Field: '{field}' not found in struct.",)
+                return val
         # if varname not found
         super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' used and not declared",)
 
@@ -493,11 +519,15 @@ class Interpreter(InterpreterBase):
             
     def do_struct_def(self, expression_node):
         struct_name = expression_node.dict['var_type']
+        struct_def = nil
+        for _def in self.struct_defs:
+            struct_def = _def if (_def.dict['name'] == struct_name) else nil
+            if (struct_def is not nil):
+                break
         # Check if struct even exists first
-        if struct_name not in self.struct_defs:
+        if struct_def is nil:
             super().error(ErrorType.TYPE_ERROR, f"struct '{struct_name}' used but not defined",)
-        
-        struct_def = self.struct_defs[struct_name]
+
         struct_fields = {}
         for fielddef in struct_def.dict['fields']:
             field_name = fielddef.dict['name']
@@ -511,15 +541,19 @@ class Interpreter(InterpreterBase):
     ## Type Checking Functions ##
     # Check if a value holds the correct type for what's needed
     def check_valid_type(self, val, needs_type):
+        struct_def_names = []
+        for _def in self.struct_defs:
+            struct_def_names.append(_def.dict['name'])
         if needs_type == "int":
             return type(val).__name__ == "int"
         elif needs_type == "bool":
             # Either int or bool is fine (coercion)
             return (type(val).__name__ == "bool") or (type(val).__name__ == "int")
         elif needs_type == "string":
-            return type(val).__name__ == "string"
-        elif needs_type in self.struct_defs:
+            return type(val).__name__ == "str"
+        elif needs_type in struct_def_names:
             # Either the val is nil, or it's a dict of field_vars
+            # TODO: this is incorrect, its just for sanity im keeping it like this now.
             return (val is nil) or (type(val) is dict)
         return False
     
@@ -533,18 +567,23 @@ class Interpreter(InterpreterBase):
 
 #DEBUGGING
 program = """
-func main() : void {
-  print(5 || false);
-  var a:int;
-  a = 1;
-  if (a) {
-    print("if works on integers now!");
-  }
-  foo(a-1);
+struct dog {
+ bark: int;
+ bite: int;
 }
 
-func foo(b : bool) : void {
-  print(b);
+func foo(d: dog) : dog {  /* d holds the same object reference that the koda variable holds */
+  d.bark = 10;
+  
+}
+
+ func main() : void {
+  var koda: dog;
+  var kippy: dog;
+  koda = new dog;
+  foo(koda);	/* kippy holds the same object reference as koda */
+  print(koda.bark);
+
 }
 """
 interpreter = Interpreter()

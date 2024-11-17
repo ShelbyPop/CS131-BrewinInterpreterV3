@@ -294,7 +294,7 @@ class Interpreter(InterpreterBase):
         condition = self.evaluate_expression(condition)
         condition = self.check_coercion(condition)
         # error if condition is non-boolean
-        if type(condition).__name__ != "bool":
+        if type(condition) is not bool:
             super().error(ErrorType.TYPE_ERROR, "Condition is not of type bool",)
         statements = statement_node.dict['statements']
         else_statements = statement_node.dict['else_statements']
@@ -338,8 +338,8 @@ class Interpreter(InterpreterBase):
         
         # Run the loop again (exits on condition false)
         while self.evaluate_expression(condition):
-            condition = self.check_coercion(condition)
-            if type(self.evaluate_expression(condition)) is not bool:
+            if type(self.check_coercion(self.evaluate_expression(condition))) is not bool:
+                #self.output(condition)
                 super().error(ErrorType.TYPE_ERROR, "Condition is not of type bool",)
             
             ### BEGIN VAR SCOPE ###
@@ -577,22 +577,57 @@ class Interpreter(InterpreterBase):
 
 #DEBUGGING
 program = """
-struct dog {
- bark: int;
- bite: int;
+struct list {
+    val: int;
+    next: list;
 }
 
-func foo(d: dog) : dog {  /* d holds the same object reference that the koda variable holds */
-  /*d.bark = 10;*/
-  return d;
+func cons(val: int, l: list) : list {
+    var h: list;
+    h = new list;
+    h.val = val;
+    h.next = l;
+    return h;
 }
 
- func main() : void {
-  var koda: dog;
-  var kippy: dog;
-  koda = new dog;
-  kippy = foo(koda);	/* kippy holds the same object reference as koda */
-  print(kippy.bark);
+func rev_app(l: list, a: list) : list {
+    if (l == nil) {
+        return a;
+    }
+
+    return rev_app(l.next, cons(l.val, a));
+}
+
+func reverse(l: list) : list {
+    var a: list;
+
+    return rev_app(l, a);
+}
+
+func print_list(l: list): void {
+    var x: list;
+    var n: int;
+    for (x = l; x != nil; x = x.next) {
+        print(x.val);
+        n = n + 1;
+    }
+    print("N=", n);
+}
+
+func main() : void {
+    var n: int;
+    var i: int;
+    var l: list;
+    var r: list;
+
+    n = inputi();
+    for (i = n; i; i = i - 1) {
+        var n: int;
+        n = inputi();
+        l = cons(n, l);
+    }
+    r = reverse(l);
+    print_list(r);
 }
 """
 interpreter = Interpreter()

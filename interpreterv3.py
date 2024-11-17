@@ -17,6 +17,7 @@ class Interpreter(InterpreterBase):
     def __init__(self, console_output=True, inp=None, trace_output=False):
         super().__init__(console_output, inp)   # call InterpreterBase's constructor
         # Since functions (at the top level) can be created anywhere, we'll just do a search for function definitions and assign them 'globally'
+        self.builtin_funcs = ["inputs", "inputi", "print"]
         self.func_defs = []
         self.struct_defs = {} # Global Struct Def
         self.variable_scope_stack = [{}] # Stack to hold variable scopes
@@ -183,6 +184,7 @@ class Interpreter(InterpreterBase):
                 return func
         # Already check if func exists before calling
         # So, must not have correct args.
+        self.output(func_call)
         super().error(ErrorType.NAME_ERROR,
                        f"Incorrect amount of arguments given: {arg_len} ",
                        )
@@ -389,6 +391,7 @@ class Interpreter(InterpreterBase):
 
     # basically pseudcode, self-explanatory
     def evaluate_expression(self, expression_node):
+        
         if self.is_value_node(expression_node):
             return self.get_value(expression_node)
         elif self.is_variable_node(expression_node):
@@ -402,9 +405,25 @@ class Interpreter(InterpreterBase):
         elif self.is_binary_boolean_operator(expression_node):
             return self.evaluate_binary_boolean_operator(expression_node)
         elif self.is_func_call(expression_node):
+            self.check_void_in_expression(expression_node)
             return self.do_func_call(expression_node)
         elif self.is_struct_def(expression_node):
             return self.do_struct_def(expression_node)
+
+    # Check if void return turn type, but called as expression node (must be done here since do_func_call can also be called as w/ statement_node)
+    def check_void_in_expression(self, expression_node):
+        # Find function def, find return type, if void, return error
+        func_call = expression_node.dict['name']
+        # need to exclude builtin funcs (input and print)
+        if func_call in self.builtin_funcs:
+            return
+        func_def = self.get_func_def(func_call, len(expression_node.dict['args']))
+        func_ret_type = func_def.dict['return_type']
+        if func_ret_type == "void":
+            #self.output("Void in return type, error")
+            super().error(ErrorType.TYPE_ERROR, f"Function return type {func_ret_type} must not be in expression.",)
+        else:
+            return
 
     def get_value(self, expression_node):
         # Returns value assigned to key 'val'
@@ -444,7 +463,7 @@ class Interpreter(InterpreterBase):
         if (expression_node.elem_type != "+") and not (type(eval1) == int and type(eval2) == int):
             super().error(ErrorType.TYPE_ERROR, "Arguments must be of type 'int'.",)
         if (expression_node.elem_type == "+") and not ((type(eval1) == int and type(eval2) == int) or (type(eval1) == str and type(eval2) == str)):
-            self.output(f"eval1: {eval1} eval2: {eval2}")
+            #self.output(f"eval1: {eval1} eval2: {eval2}")
             super().error(ErrorType.TYPE_ERROR, "Types for + must be both of type int or string.",)
         if expression_node.elem_type == "+":
             return (eval1 + eval2)
@@ -576,16 +595,17 @@ class Interpreter(InterpreterBase):
     # No more functions remain... for now... :)
 
 #DEBUGGING
-program = """
-func main() : void {
-  var b: bool;
-  b = foo() == nil;
-}
+# program = """
+# struct s {
+#   a:int;
+# }
 
-func foo() : void {
-  var a: int;
-}
-}
-"""
-interpreter = Interpreter()
-interpreter.run(program)
+# func main() : int {
+#   var x: s;
+#   x = new s;
+#   x = nil;
+#   print(x.a);
+# }
+# """
+# interpreter = Interpreter()
+# interpreter.run(program)

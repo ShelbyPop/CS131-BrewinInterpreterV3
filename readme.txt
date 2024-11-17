@@ -18,3 +18,5 @@
     - Removed pass by obj ref structs (need to add back)
     - or.... not? Needs more extensive testing. (I think I accidentally have it somehow)
 - Fixed for loop not evaluating coercion correctly
+- Added FAULT_ERROR in correct locations.
+- Added error checking for evaluating a void return function in expression (hopefully didnt break anything else)

@@ -143,8 +143,16 @@ class Interpreter(InterpreterBase):
                     field_vars[var_name] = {'value': nil, 'type': var_type}
 
     def do_assignment(self, statement_node):
-        #self.output(statement_node)
         target_var_name = self.get_target_variable_name(statement_node)
+
+        #Check if assigning to a field
+        is_field_var = False
+        if (self.is_field_var(target_var_name)):
+            is_field_var = True
+            split_var = target_var_name.split('.')
+            target_var_name = split_var[0]
+            field = split_var[1]
+
         for scope in reversed(self.variable_scope_stack): 
             if target_var_name in scope: 
                 # Does not evaluate until after checking if valid variable
@@ -158,16 +166,25 @@ class Interpreter(InterpreterBase):
                     resulting_value = resulting_value[0]
                 else:
                     result_type = type(resulting_value).__name__
-                    
-                var_type = scope[target_var_name]['type']
+                
+                if is_field_var:
+                    # type check the field, not the struct.
+                    #self.output(scope[target_var_name]['value'][field]['type'])
+                    var_type = scope[target_var_name]['value'][field]['type']
+                else:
+                    var_type = scope[target_var_name]['type']
                 ## check type validity ## 
-                #self.output(scope[target_var_name])
-
                 ## TODO: fix these type checking still, type(resulting_value) probably not correct?
                 resulting_value = self.check_coercion(var_type, resulting_value) # type coercion bool->int
                 self.check_same_type(var_type, result_type, "assignment")
                 
-                scope[target_var_name]['value'] = resulting_value 
+                if is_field_var:
+                    # type check the field, not the struct.
+                    #self.output(scope[target_var_name]['value'][field]['type'])
+                    scope[target_var_name]['value'][field]['value'] = resulting_value
+                else:
+                    scope[target_var_name]['value'] = resulting_value 
+                
                 return
         super().error(ErrorType.NAME_ERROR, f"variable used and not declared: {target_var_name}",)
 
@@ -257,9 +274,10 @@ class Interpreter(InterpreterBase):
                 var_name = params[i].dict['name']
                 var_type = params[i].dict['var_type']
                 arg_value = self.evaluate_expression(args[i])
+                arg_type = self.get_type_of_variable(args[i])
                 ## check type validity ##
                 arg_value = self.check_coercion(var_type, arg_value) # type coercion bool->int
-                self.check_same_type(var_type, type(arg_value).__name__, "parameter")
+                self.check_same_type(var_type, arg_type, "parameter")
                 processed_args[-1][var_name] = {'value': arg_value, 'type': var_type}
             main_vars = self.variable_scope_stack.copy()
 
@@ -421,18 +439,39 @@ class Interpreter(InterpreterBase):
         for scope in reversed(self.variable_scope_stack): 
             if var_name in scope: 
                 val = scope[var_name]['value']
-
                 if is_field_var:
                     val = val[field]['value']
-                
-                
-                # Error deprecated in V3
-                # if val is None:
-                #     super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' declared but not defined",)
-                # else: 
+    
                 return val 
         # if varname not found
         super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' used and not declared",)
+
+    def get_type_of_variable(self, expression_node):
+        # return nil might be wrong for this?
+        if expression_node == 'nil':
+            return nil
+        var_name = expression_node.dict['name']
+        is_field_var  = False
+
+        # Check if field call
+        if (self.is_field_var(var_name)):
+            is_field_var = True
+            split_var = var_name.split('.')
+            var_name = split_var[0]
+            field = split_var[1]
+        
+
+        for scope in reversed(self.variable_scope_stack): 
+            if var_name in scope: 
+                vardef = scope[var_name]
+                if is_field_var:
+                    _type = vardef['value'][field]['type']
+                else:
+                    _type = vardef['type']
+                return _type
+        # if varname not found
+        super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' used and not declared",)
+
 
     def do_struct_def(self,expression_node):
         struct_name = expression_node.dict['var_type']
@@ -549,6 +588,10 @@ class Interpreter(InterpreterBase):
     def check_same_type(self, type1, type2, area):
         # Error for type checking: "in assignment", "on formal parameter {var_name}", "inconsistent with function return type {int}"
         ### No type coercion from int->bool for now ###
+        if (type1) == "string":
+            type1 = "str"
+        if (type2) == "string":
+            type2 = "str"
         if area == "assignment":
             if type1 != type2:
                 super().error(ErrorType.TYPE_ERROR, f"Type mismatch {type1} vs {type2} in assignment",)
@@ -556,6 +599,7 @@ class Interpreter(InterpreterBase):
                 return
         if area == "parameter":
             if type1 != type2:
+                self.output(f"type1: {type1} type2: {type2}")
                 super().error(ErrorType.TYPE_ERROR, f"Type mismatch on formal parameter with type: {type1}",)
             else:
                 return
@@ -572,26 +616,25 @@ class Interpreter(InterpreterBase):
     # No more functions remain... for now... :)
 
 #DEBUGGING
-# program = """
-# struct Person {
-#   name: string;
-#   age: int;
-#   student: bool;
-# }
+program = """
+struct Person {
+  name: string;
+  age: int;
+  student: bool;
+}
 
-# struct Person2 {
-#   name: string;
-#   age: int;
-#   student: bool;
-# }
+func main() : void {
+  var p: Person;
+  p = new Person;
+  p.name = "Carey";
+  p.age = 21;
+  p.student = false;
+  foo(p);
+}
 
-# func main() : void {
-#   var test: bool;
-#   test = false;
-#   var p: Person;
-#   p = new Person;
-#   print(p.student);
-# }
-# """
-# interpreter = Interpreter()
-# interpreter.run(program)
+func foo(p : Person) : void {
+  print(p.name, " is ", p.age, " years old.");
+}
+"""
+interpreter = Interpreter()
+interpreter.run(program)

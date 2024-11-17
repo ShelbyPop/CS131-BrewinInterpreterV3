@@ -56,12 +56,21 @@ class Interpreter(InterpreterBase):
             if isinstance(return_value, Element) and return_value.elem_type == "return":
                 # Return the value, dont need to continue returning.
                 self.variable_scope_stack.pop()
-                return return_value.get("value")
+                return_value = return_value.get("value")
+                # Perform type checking
+                if return_value is nil:
+                    return self.get_default_value(func_ret_type)
+                if not self.check_valid_type(return_value, func_ret_type):
+                    self.output(return_value)
+                    super().error(ErrorType.TYPE_ERROR, f"Return type misaligns with functions return type: {func_ret_type}",)
+                return return_value
             if return_value is not nil:
                 break
         
         ### END FUNC SCOPE ###
         self.variable_scope_stack.pop()
+        if return_value is nil:
+            return self.get_default_value(func_ret_type)
         return return_value
     
     # Let's define the default values here, and just assign in the definition.
@@ -506,14 +515,16 @@ class Interpreter(InterpreterBase):
 program = """
 func main() : void {
   print(foo());
-  
+  print(bar());
 }
 
 func foo() : int {
   return; /* returns 0 */
 }
 
-
+func bar() : bool {
+  print("bar");
+}  /* returns false*/
 """
 interpreter = Interpreter()
 interpreter.run(program)

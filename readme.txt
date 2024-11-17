@@ -10,3 +10,4 @@
 
 - Added basic type checking
 - Added basic struct functionality
+- Added default return values

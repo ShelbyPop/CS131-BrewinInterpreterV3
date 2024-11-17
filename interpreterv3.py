@@ -11,14 +11,22 @@ class Interpreter(InterpreterBase):
         super().__init__(console_output, inp)   # call InterpreterBase's constructor
         # Since functions (at the top level) can be created anywhere, we'll just do a search for function definitions and assign them 'globally'
         self.func_defs = []
+        self.struct_defs = {} # Global Struct Def
         self.variable_scope_stack = [{}] # Stack to hold variable scopes
         
     def run(self, program):
         ast = parse_program(program) # returns list of function nodes
-        self.output(ast) # always good for start of assignment
+        #self.output(ast) # always good for start of assignment
+        self.struct_defs = self.get_struct_defs(ast)
         self.func_defs = self.get_func_defs(ast)
         main_func_node = self.get_main_func_node(ast)
         self.run_func(main_func_node)
+
+    # grabs all globally defined struct defs
+    def get_struct_defs(self, ast):
+        #for item in ast.dict['structs']:
+            #self.output(item)
+        return ast.dict['structs']
 
     # grabs all globally defined functions to call when needed.
     def get_func_defs(self, ast):
@@ -40,6 +48,8 @@ class Interpreter(InterpreterBase):
         ### BEGIN FUNC SCOPE ###
         self.variable_scope_stack.append({})
         return_value = nil
+        func_ret_type = func_node.dict['return_type']
+
         for statement in func_node.dict['statements']:
             return_value = self.run_statement(statement)
             # check if statement results in a return, and return a return statement with 
@@ -54,6 +64,22 @@ class Interpreter(InterpreterBase):
         self.variable_scope_stack.pop()
         return return_value
     
+    # Let's define the default values here, and just assign in the definition.
+    # Switching to if else to do 'type_name in self.struct_defs'
+    def get_default_value(self, type_name):
+        if type_name == "int":
+            return 0
+        elif type_name == "bool":
+            return False
+        elif type_name == "string":
+            return ""
+        elif type_name in self.struct_defs:
+            return nil
+        elif type_name == "void":
+            return nil
+        else:
+            super().error(ErrorType.TYPE_ERROR, f"Unknown type: {type_name}")
+
     def run_statement(self, statement_node):
         #print(f"Running statement: {statement_node}")
         if self.is_definition(statement_node):
@@ -75,7 +101,6 @@ class Interpreter(InterpreterBase):
     def is_assignment(self, statement_node):
         return (True if statement_node.elem_type == "=" else False)
     def is_func_call(self, statement_node):
-        
         return (True if statement_node.elem_type == "fcall" else False)
     def is_return_statement(self, statement_node):
         return (True if statement_node.elem_type == "return" else False)
@@ -87,24 +112,36 @@ class Interpreter(InterpreterBase):
     def do_definition(self, statement_node):
         # just add to var_name_to_value dict
         target_var_name = self.get_target_variable_name(statement_node)
+        target_var_type = self.get_target_variable_type(statement_node)
         if target_var_name in self.variable_scope_stack[-1]:
             super().error(ErrorType.NAME_ERROR, f"Variable {target_var_name} defined more than once",)
         else:
-            self.variable_scope_stack[-1][target_var_name] = None
+            # I liked variables being a dict with 'value' and 'type', let's do that again
+            self.variable_scope_stack[-1][target_var_name] = {
+                'value' : self.get_default_value(target_var_type),
+                'type' : target_var_type
+            }
         
     def do_assignment(self, statement_node):
-        
         target_var_name = self.get_target_variable_name(statement_node)
+        source_node = self.get_expression_node(statement_node)
+        resulting_value = self.evaluate_expression(source_node)
+
         for scope in reversed(self.variable_scope_stack): 
             if target_var_name in scope: 
                 # Does not evaluate until after checking if valid variable
-                source_node = self.get_expression_node(statement_node)
-                resulting_value = self.evaluate_expression(source_node)
-                scope[target_var_name] = resulting_value 
-                return
+                var_type = scope[target_var_name]['type']
+                ## Perform Type Checking ##
+                if self.check_valid_type(resulting_value, var_type):
+                    # only set value if valid (allows int->bool)
+                    scope[target_var_name]['value'] = resulting_value
+                    return
+                else:
+                    super().error(ErrorType.NAME_ERROR, f"Invalid type {var_type} assigned to {target_var_name}",)
         super().error(ErrorType.NAME_ERROR, f"variable used and not declared: {target_var_name}",)
 
-    # Check if function is defined
+
+    # Checks if function is defined
     def check_valid_func(self, func_call):
         for func in self.func_defs:
             if func.dict['name'] == func_call:
@@ -191,7 +228,17 @@ class Interpreter(InterpreterBase):
             for i in range(0,len(params)):
                 # define params
                 var_name = params[i].dict['name']
-                processed_args[-1][var_name] = self.evaluate_expression(args[i])
+                var_type = params[i].dict['var_type']
+                arg_value = self.evaluate_expression(args[i])
+                # Perform Type Checking..
+                if self.check_valid_type(arg_value, var_type):
+                    processed_args[-1][var_name] = {
+                        'value' : arg_value,
+                        'type' : var_type
+                    }
+                else:
+                    super().error(ErrorType.TYPE_ERROR, f"Invalid arg type given to formal parameter {var_name}",)
+
             main_vars = self.variable_scope_stack.copy()
 
             # wipe all prev vars except arguments
@@ -285,6 +332,8 @@ class Interpreter(InterpreterBase):
     # helper functions
     def get_target_variable_name(self, statement_node):
         return statement_node.dict['name']
+    def get_target_variable_type(self, statement_node):
+        return statement_node.dict['var_type']
     def get_expression_node(self, statement_node):
         return statement_node.dict['expression']
     
@@ -301,6 +350,9 @@ class Interpreter(InterpreterBase):
         return True if (expression_node.elem_type in ['==', '<', '<=', '>', '>=', '!=']) else False
     def is_binary_boolean_operator(self, expression_node):
         return True if (expression_node.elem_type in ['&&', '||']) else False
+    def is_struct_def(self, expression_node):
+        return True if (expression_node.elem_type == "new") else False
+
 
     # basically pseudcode, self-explanatory
     def evaluate_expression(self, expression_node):
@@ -318,6 +370,8 @@ class Interpreter(InterpreterBase):
             return self.evaluate_binary_boolean_operator(expression_node)
         elif self.is_func_call(expression_node):
             return self.do_func_call(expression_node)
+        elif self.is_struct_def(expression_node):
+            return self.do_struct_def(expression_node)
 
     def get_value(self, expression_node):
         # Returns value assigned to key 'val'
@@ -329,15 +383,10 @@ class Interpreter(InterpreterBase):
     def get_value_of_variable(self, expression_node): 
         if expression_node == 'nil':
             return nil
-        
         var_name = expression_node.dict['name']
         for scope in reversed(self.variable_scope_stack): 
             if var_name in scope: 
-                val = scope[var_name] 
-                if val is None:
-                    super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' declared but not defined",)
-                else: 
-                    return val 
+                return scope[var_name]['value']
         # if varname not found
         super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' used and not declared",)
 
@@ -351,6 +400,7 @@ class Interpreter(InterpreterBase):
         if (expression_node.elem_type != "+") and not (type(eval1) == int and type(eval2) == int):
             super().error(ErrorType.TYPE_ERROR, "Arguments must be of type 'int'.",)
         if (expression_node.elem_type == "+") and not ((type(eval1) == int and type(eval2) == int) or (type(eval1) == str and type(eval2) == str)):
+            #self.output(f"eval1: {eval1} eval2: {eval2}")
             super().error(ErrorType.TYPE_ERROR, "Types for + must be both of type int or string.",)
         if expression_node.elem_type == "+":
             return (eval1 + eval2)
@@ -416,16 +466,54 @@ class Interpreter(InterpreterBase):
                 return (eval1 and eval2)
             case '||':
                 return (eval1 or eval2)
+            
+    def do_struct_def(self, expression_node):
+        struct_name = expression_node.dict['var_type']
+        # Check if struct even exists first
+        if struct_name not in self.struct_defs:
+            super().error(ErrorType.TYPE_ERROR, f"struct '{struct_name}' used but not defined",)
+        
+        struct_def = self.struct_defs[struct_name]
+        struct_fields = {}
+        for fielddef in struct_def.dict['fields']:
+            field_name = fielddef.dict['name']
+            field_type = fielddef.dict['var_type']
+            struct_fields[field_name] = {
+                'value' : self.get_default_value(field_type),
+                'type' : field_type                
+            }
+        return struct_fields
+
+    ## Type Checking Functions ##
+    # Check if a value holds the correct type for what's needed
+    def check_valid_type(self, val, needs_type):
+        if needs_type == "int":
+            return type(val).__name__ == "int"
+        elif needs_type == "bool":
+            # Either int or bool is fine (coercion)
+            return (type(val).__name__ == "bool") or (type(val).__name__ == "int")
+        elif needs_type == "string":
+            return type(val).__name__ == "string"
+        elif needs_type in self.struct_defs:
+            # Either the val is nil, or it's a dict of field_vars
+            return (val is nil) or (type(val) is dict)
+        return False
+    
+
     # No more functions remain... for now... :)
 
 #DEBUGGING
 program = """
-func foo(a : int) : int {
-  return (a+1);
-}
 func main() : void {
-	print(foo(6));
+  print(foo());
+  
 }
+
+func foo() : int {
+  return; /* returns 0 */
+}
+
+
 """
 interpreter = Interpreter()
 interpreter.run(program)

@@ -17,3 +17,4 @@
 - Added Strict Struct typing (removed duck typing)
     - Removed pass by obj ref structs (need to add back)
     - or.... not? Needs more extensive testing. (I think I accidentally have it somehow)
+- Fixed for loop not evaluating coercion correctly

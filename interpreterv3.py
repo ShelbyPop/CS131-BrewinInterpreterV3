@@ -154,7 +154,7 @@ class Interpreter(InterpreterBase):
                     if (type(curr['value']) == StructObject) and (field in curr['value']._fields):
                         curr = curr['value']._fields[field]
                     else:
-                        super().error(ErrorType.NAME_ERROR, f"Field: {field} was not found",)
+                        super().error(ErrorType.FAULT_ERROR, f"Field: {field} was not found",)
                 #last_field = fields[-1]  
                 var_type = curr['type'] # type check against field type, not struct type
                 ## Perform Type Checking ##
@@ -429,7 +429,7 @@ class Interpreter(InterpreterBase):
                     if (type(val) is StructObject) and (field in val._fields):
                         val = val._fields[field]['value']
                     else:
-                        super().error(ErrorType.NAME_ERROR, f"Field: '{field}' not found in struct.",)
+                        super().error(ErrorType.FAULT_ERROR, f"Field: '{field}' not found in struct.",)
                 return val
         # if varname not found
         super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' used and not declared",)
@@ -577,57 +577,14 @@ class Interpreter(InterpreterBase):
 
 #DEBUGGING
 program = """
-struct list {
-    val: int;
-    next: list;
-}
-
-func cons(val: int, l: list) : list {
-    var h: list;
-    h = new list;
-    h.val = val;
-    h.next = l;
-    return h;
-}
-
-func rev_app(l: list, a: list) : list {
-    if (l == nil) {
-        return a;
-    }
-
-    return rev_app(l.next, cons(l.val, a));
-}
-
-func reverse(l: list) : list {
-    var a: list;
-
-    return rev_app(l, a);
-}
-
-func print_list(l: list): void {
-    var x: list;
-    var n: int;
-    for (x = l; x != nil; x = x.next) {
-        print(x.val);
-        n = n + 1;
-    }
-    print("N=", n);
-}
-
 func main() : void {
-    var n: int;
-    var i: int;
-    var l: list;
-    var r: list;
+  var b: bool;
+  b = foo() == nil;
+}
 
-    n = inputi();
-    for (i = n; i; i = i - 1) {
-        var n: int;
-        n = inputi();
-        l = cons(n, l);
-    }
-    r = reverse(l);
-    print_list(r);
+func foo() : void {
+  var a: int;
+}
 }
 """
 interpreter = Interpreter()

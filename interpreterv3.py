@@ -152,10 +152,16 @@ class Interpreter(InterpreterBase):
                 curr = scope[target_var_name]
                 #self.output(curr)
                 for field in fields: # traverse excluding last field
-                    if (type(curr['value']) == StructObject) and (field in curr['value']._fields):
-                        curr = curr['value']._fields[field]
-                    else:
-                        super().error(ErrorType.FAULT_ERROR, f"Field: {field} was not found",)
+                    if (curr['value'] is nil):
+                        super().error(ErrorType.FAULT_ERROR, f"Cannot apply field {field} to nil-value variable",)
+                    if (type(curr['value']) != StructObject):
+                        super().error(ErrorType.TYPE_ERROR, f"Cannot apply field {field} to non-struct variable.",)
+                    # previous field is struct object is implicit now
+                    if (field not in curr['value']._fields):
+                        super().error(ErrorType.NAME_ERROR, f"Field: {field} was not found",)
+                    # Everything must be valid!
+                    curr = curr['value']._fields[field]
+  
                 #last_field = fields[-1]  
                 var_type = curr['type'] # type check against field type, not struct type
                 ## Perform Type Checking ##
@@ -166,7 +172,7 @@ class Interpreter(InterpreterBase):
                     curr['value'] = resulting_value
                     return
                 else:
-                    super().error(ErrorType.NAME_ERROR, f"Invalid type {type(resulting_value).__name__} assigned to variable with type {var_type}",)
+                    super().error(ErrorType.TYPE_ERROR, f"Invalid type {type(resulting_value).__name__} assigned to variable with type {var_type}",)
         super().error(ErrorType.NAME_ERROR, f"variable used and not declared: {target_var_name}",)
 
 
@@ -445,10 +451,15 @@ class Interpreter(InterpreterBase):
                 val = scope[var_name]['value']
                 # If fields (a.next or a.next.next, etc.) walk the tree of vars in scope
                 for field in fields:
-                    if (type(val) is StructObject) and (field in val._fields):
-                        val = val._fields[field]['value']
-                    else:
-                        super().error(ErrorType.FAULT_ERROR, f"Field: '{field}' not found in struct.",)
+                    if (val is nil):
+                        super().error(ErrorType.FAULT_ERROR, f"Cannot apply field {field} to nil-value variable",)
+                    if (type(val) != StructObject):
+                        super().error(ErrorType.TYPE_ERROR, f"Cannot apply field {field} to non-struct variable.",)
+                    # previous field is struct object is implicit now
+                    if (field not in val._fields):
+                        super().error(ErrorType.NAME_ERROR, f"Field: {field} was not found",)
+                    # Everything must be valid!
+                    val = val._fields[field]['value']
                 return val
         # if varname not found
         super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' used and not declared",)
@@ -596,16 +607,23 @@ class Interpreter(InterpreterBase):
 
 #DEBUGGING
 # program = """
-# struct s {
-#   a:int;
+# struct coordinates {
+#     x: int;
+#     y: int;
 # }
 
-# func main() : int {
-#   var x: s;
-#   x = new s;
-#   x = nil;
-#   print(x.a);
+# func get_coordinates() : coordinates {
+#     var coord: coordinates;
+#     coord = new coordinates;
+#     coord.z = 10; 
+#     return coord;
 # }
+
+# func main() : void {
+#     var c: coordinates;
+#     c = get_coordinates();
+# }
+
 # """
 # interpreter = Interpreter()
 # interpreter.run(program)

@@ -3,3 +3,4 @@
 - Added structs + default field values
 - Added struct field usability (but not assignment)
 - Added field var assignment
+- Fixed Struct type mismatch mistakenly showing an error in parameter passing.

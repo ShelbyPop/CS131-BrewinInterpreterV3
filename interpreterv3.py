@@ -49,15 +49,13 @@ class Interpreter(InterpreterBase):
                 # Return the value, dont need to continue returning.
                 ## check type validity ##
                 self.variable_scope_stack.pop()
-                ret_value = self.check_coercion(func_node.dict['return_type'], return_value) # type coercion bool->int
-                self.check_same_type(func_node.dict['return_type'], type(return_value.get("value")), "func_ret")
-                # self.output(func_node.dict['return_type'])
+                ret_value,ret_type = self.check_coercion(func_node.dict['return_type'], return_value, type(return_value.get("value")).__name__) # type coercion bool->int
+                self.check_same_type(func_node.dict['return_type'], ret_type, "func_ret")
                 return ret_value
             if return_value is not nil:
                 ## check type validity ##
-                return_value = self.check_coercion(func_node.dict['return_type'], return_value) # type coercion bool->int
-                #self.output(return_value)
-                self.check_same_type(func_node.dict['return_type'], type(return_value), "func_ret")
+                return_value,return_type = self.check_coercion(func_node.dict['return_type'], return_value, type(return_value).__name__) # type coercion bool->int
+                self.check_same_type(func_node.dict['return_type'], return_type, "func_ret")
                 break
         
         ### END FUNC SCOPE ###
@@ -175,7 +173,7 @@ class Interpreter(InterpreterBase):
                     var_type = scope[target_var_name]['type']
                 ## check type validity ## 
                 ## TODO: fix these type checking still, type(resulting_value) probably not correct?
-                resulting_value = self.check_coercion(var_type, resulting_value) # type coercion bool->int
+                resulting_value,result_type = self.check_coercion(var_type, resulting_value, result_type) # type coercion bool->int
                 self.check_same_type(var_type, result_type, "assignment")
                 
                 if is_field_var:
@@ -274,10 +272,11 @@ class Interpreter(InterpreterBase):
                 var_name = params[i].dict['name']
                 var_type = params[i].dict['var_type']
                 arg_value = self.evaluate_expression(args[i])
-                arg_type = self.get_type_of_variable(args[i])
+                arg_type = self.get_type_of_variable(args[i]) 
                 ## check type validity ##
-                arg_value = self.check_coercion(var_type, arg_value) # type coercion bool->int
+                arg_value,arg_type = self.check_coercion(var_type, arg_value,arg_type) # type coercion bool->int
                 self.check_same_type(var_type, arg_type, "parameter")
+
                 processed_args[-1][var_name] = {'value': arg_value, 'type': var_type}
             main_vars = self.variable_scope_stack.copy()
 
@@ -303,7 +302,9 @@ class Interpreter(InterpreterBase):
         condition = statement_node.dict['condition']
         condition = self.evaluate_expression(condition)
         # error if condition is non-boolean
-        if type(condition) is not bool:
+        
+        condition,cond_type = self.check_coercion("bool", condition, type(condition).__name__)
+        if cond_type != "bool":
             super().error(ErrorType.TYPE_ERROR, "Condition is not of type bool",)
         statements = statement_node.dict['statements']
         else_statements = statement_node.dict['else_statements']
@@ -347,7 +348,7 @@ class Interpreter(InterpreterBase):
         
         # Run the loop again (exits on condition false)
         while self.evaluate_expression(condition):
-            if type(self.evaluate_expression(condition)) is not bool:
+            if type(self.evaluate_expression(condition)).__name__ != "bool":
                 super().error(ErrorType.TYPE_ERROR, "Condition is not of type bool",)
             
             ### BEGIN VAR SCOPE ###
@@ -447,10 +448,14 @@ class Interpreter(InterpreterBase):
         super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' used and not declared",)
 
     def get_type_of_variable(self, expression_node):
+        #self.output(expression_node)
         # return nil might be wrong for this?
         if expression_node == 'nil':
             return nil
-        var_name = expression_node.dict['name']
+        if 'name' in expression_node.dict:
+            var_name = expression_node.dict['name']
+        else:
+            return type(self.evaluate_expression(expression_node)).__name__
         is_field_var  = False
 
         # Check if field call
@@ -560,10 +565,10 @@ class Interpreter(InterpreterBase):
         eval1 = self.evaluate_expression(expression_node.dict['op1'])
         eval2 = self.evaluate_expression(expression_node.dict['op2'])
         # coerce both ways
-        eval1 = self.check_coercion(type(eval2).__name__, eval1)
-        eval2 = self.check_coercion(type(eval1).__name__, eval2)
+        eval1,eval1_type = self.check_coercion(type(eval2).__name__, eval1, type(eval1).__name__)
+        eval2,eval2_type = self.check_coercion(type(eval1).__name__, eval2, type(eval2).__name__)
 
-        if (type(eval1) is not bool) or (type(eval2) is not bool):
+        if (eval1_type != "bool") or (eval2_type != "bool"):
             super().error(ErrorType.TYPE_ERROR, f"Comparison args for {expression_node.elem_type} must be of same type bool.",)
         # forces evaluation on both (strict evaluation)
         eval1 = bool(eval1)
@@ -577,21 +582,21 @@ class Interpreter(InterpreterBase):
     ## Type Checking Functions ##
     # coerce int to bool (if arg1 is type bool)
     # TODO: coercion might be wrong in doing both (1 && true) and (true && 1)
-    def check_coercion(self, arg1, arg2):
-        if (arg1 == "bool") and isinstance(arg2, int):
-            return bool(arg2)
+    def check_coercion(self, arg1, arg2, arg2_type):
+        if (arg1 == "bool") and (arg2_type == "int"):
+            arg2_type = "bool"
+            return (bool(arg2),arg2_type)
         else:
-            return arg2
+            return (arg2,arg2_type)
 
     # type1 - var type, param type, func return type
     # type2 - value/expression type
     def check_same_type(self, type1, type2, area):
-        # Error for type checking: "in assignment", "on formal parameter {var_name}", "inconsistent with function return type {int}"
-        ### No type coercion from int->bool for now ###
-        if (type1) == "string":
-            type1 = "str"
-        if (type2) == "string":
-            type2 = "str"
+        if (type1) == "str":
+            type1 = "string"
+        if (type2) == "str":
+            type2 = "string"
+        
         if area == "assignment":
             if type1 != type2:
                 super().error(ErrorType.TYPE_ERROR, f"Type mismatch {type1} vs {type2} in assignment",)

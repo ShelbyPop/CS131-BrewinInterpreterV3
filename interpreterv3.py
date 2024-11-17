@@ -44,28 +44,38 @@ class Interpreter(InterpreterBase):
         return_value = nil
         func_ret_type = func_node.dict['return_type']
 
+
         for statement in func_node.dict['statements']:
             return_value = self.run_statement(statement)
+            #self.output(f"Running statement: {statement}")
+            # Checks if struct returning
+            if isinstance(return_value, tuple):
+                return_type = return_value[1]
+            else:
+                return_type = type(return_value).__name__
+
             # check if statement results in a return, and return a return statement with 
             if isinstance(return_value, Element) and return_value.elem_type == "return":
                 # Return the value, dont need to continue returning.
                 ## check type validity ##
                 self.variable_scope_stack.pop()
                 return_value = self.get_default_ret_value(func_ret_type, return_value.get("value") )
-                return_value,ret_type = self.check_coercion(func_ret_type, return_value, type(return_value).__name__) # type coercion bool->int
-                self.check_same_type(func_ret_type, ret_type, "func_ret")
+                return_value,return_type = self.check_coercion(func_ret_type, return_value, return_type) # type coercion bool->int
+                self.check_same_type(func_ret_type, return_type, "func_ret")
                 return return_value
 
             if return_value is not nil:
                 ## check type validity ##
                 return_value = self.get_default_ret_value(func_ret_type, return_value)
-                return_value,return_type = self.check_coercion(func_ret_type, return_value, type(return_value).__name__) # type coercion bool->int
+                return_value,return_type = self.check_coercion(func_ret_type, return_value, return_type) # type coercion bool->int
+                #self.output(f"Function returning: {return_value}, whose type is {return_type}")
                 self.check_same_type(func_ret_type, return_type, "func_ret")
                 break
             else:
                 # return_value is nil:
+                ## check type validity ##
                 return_value = self.get_default_ret_value(func_ret_type, return_value )
-                return_value,return_type = self.check_coercion(func_ret_type, return_value, type(return_value).__name__) # type coercion bool->int
+                return_value,return_type = self.check_coercion(func_ret_type, return_value, return_type) # type coercion bool->int
                 self.check_same_type(func_ret_type, return_type, "func_ret")
         
         ### END FUNC SCOPE ###
@@ -91,7 +101,7 @@ class Interpreter(InterpreterBase):
 
 
     def run_statement(self, statement_node):
-        #print(f"Running statement: {statement_node}")
+        #self.output(f"Running statement: {statement_node}")
         if self.is_definition(statement_node):
             self.do_definition(statement_node)
         elif self.is_assignment(statement_node):
@@ -188,19 +198,29 @@ class Interpreter(InterpreterBase):
                 result_type = None
 
                 # only for if resulting value is coming from a struct
+                
                 if type(resulting_value) is tuple:
                     result_type = resulting_value[1] # Checks for struct type
                     resulting_value = resulting_value[0]
                 else:
                     result_type = type(resulting_value).__name__
-                
+                self.output(f"RESULTING VALUE: {resulting_value}")
+
                 if is_field_var:
                     # Walk the dict to find the necessary field (like p.kitty.name) - MULTIDOT SOLVE
                     current_level = scope[target_var_name]['value']
                     for field in fields[:-1]: # Traverse all except the last field 
+                        if current_level == nil:
+                            super().error(ErrorType.FAULT_ERROR, f"Field is nil")
+                        if field not in current_level: 
+                            super().error(ErrorType.TYPE_ERROR, f"field '{last_field}' does not exist in struct.")
                         current_level = current_level[field]['value']
 
                     last_field = fields[-1]    
+                    if current_level == nil:
+                        super().error(ErrorType.FAULT_ERROR, f"Field is nil")
+                    if last_field not in current_level: 
+                        super().error(ErrorType.TYPE_ERROR, f"field '{last_field}' does not exist in struct.")
                     var_type = current_level[last_field]['type'] # type check the field, not the struct.
                 else:
                     var_type = scope[target_var_name]['type']
@@ -327,6 +347,7 @@ class Interpreter(InterpreterBase):
             ##### End Function Call ######
     
     def do_return_statement(self, statement_node):
+        #self.output(f"Statement is: {statement_node}")
         if not statement_node.dict['expression']:
             #return 'nil' Element
             return Element("return", value=nil)
@@ -460,6 +481,7 @@ class Interpreter(InterpreterBase):
 
     # returns value under the variable name provided.
     def get_value_of_variable(self, expression_node): 
+        #self.output(expression_node)
         if expression_node == 'nil':
             return nil
         var_name = expression_node.dict['name']
@@ -475,17 +497,37 @@ class Interpreter(InterpreterBase):
 
         for scope in reversed(self.variable_scope_stack): 
             if var_name in scope: 
-                val = scope[var_name]['value']
+
+                vardef = scope[var_name]
+                self.output(scope)
+                val = vardef['value']
+                var_type = vardef['type']
                 if is_field_var:
                     # Traverse the nested fields to get the target value 
-                    current_level = val
+                    current_level = vardef['value'] # Grabs dict of field vals to variable
+                    #self.output(f"{vardef}")
                     for field in fields[:-1]: # Traverse all except the last field
+                        if current_level == nil:
+                            super().error(ErrorType.FAULT_ERROR, f"Field is nil")
+                        if field not in current_level: 
+                            super().error(ErrorType.TYPE_ERROR, f"field '{last_field}' does not exist in struct.")
                         current_level = current_level[field]['value']
+                        
                     # The last field is where we get the value 
                     last_field = fields[-1] 
+                    if current_level == nil:
+                        super().error(ErrorType.FAULT_ERROR, f"Field is nil")
+                    if last_field not in current_level: 
+                        self.output(f"Current level: {current_level}, last_field: {last_field}")
+                        super().error(ErrorType.TYPE_ERROR, f"field '{last_field}' does not exist in struct.")
                     val = current_level[last_field]['value']
-    
-                return val 
+                    var_type = current_level[last_field]['type']
+                    return (val, var_type)
+                elif self.is_struct_type(var_type):
+                    return (val, var_type) # If struct, we need to know which struct
+                
+                #self.output(f"RETURNING: {val}")
+                return val
         # if varname not found
         super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' used and not declared",)
 
@@ -515,9 +557,17 @@ class Interpreter(InterpreterBase):
                     # Traverse the nested fields to get the target type 
                     current_level = vardef['value']
                     for field in fields[:-1]: # Traverse all except the last field 
+                        if current_level == nil:
+                            super().error(ErrorType.FAULT_ERROR, f"Field is nil")
+                        if field not in current_level: 
+                            super().error(ErrorType.TYPE_ERROR, f"field '{last_field}' does not exist in struct.")
                         current_level = current_level[field]['value']
                     # The last field is where we get the type 
                     last_field = fields[-1] 
+                    if current_level == nil:
+                        super().error(ErrorType.FAULT_ERROR, f"Field is nil")
+                    if last_field not in current_level: 
+                        super().error(ErrorType.TYPE_ERROR, f"field '{last_field}' does not exist in struct.")
                     _type = current_level[last_field]['type']
                 else:
                     _type = vardef['type']
@@ -529,6 +579,7 @@ class Interpreter(InterpreterBase):
     def do_struct_def(self,expression_node):
         struct_name = expression_node.dict['var_type']
         # find the struct def
+        struct_def = nil
         for _def in self.struct_defs:
             struct_def = _def if (_def.dict['name'] == struct_name) else nil
             if (struct_def is not nil):
@@ -674,30 +725,22 @@ class Interpreter(InterpreterBase):
 #DEBUGGING
 program = """
 struct dog {
-  bark: int;
-  bite: int;
+ bark: int;
+ bite: int;
 }
 
-func bar() : int {
-  return;  /* no return value specified - returns 0 */
+func foo(d: dog) : dog {  /* d holds the same object reference that the koda variable holds */
+  /*d.bark = 10;*/
+  print(d.bark);
+  return d;
 }
 
-func bletch() : bool {
-  print("hi");
-  /* no explicit return; bletch must return default bool of false */
-}
-
-func boing() : dog {
-  return;  /* returns nil */
-}
-
-func main() : void {
-   var val: int;
-   val = bar();
-   print(val);  /* prints 0 */
-   print(bletch()); /* prints false */
-   print(boing()); /* prints nil */
-
+ func main() : void {
+  var koda: dog;
+  var kippy: dog;
+  koda = new dog;
+  kippy = foo(koda);	/* kippy holds the same object reference as koda */
+  print(kippy.bark);
 }
 
 """

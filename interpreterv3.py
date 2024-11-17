@@ -504,6 +504,14 @@ class Interpreter(InterpreterBase):
     def evaluate_comparison_operator(self, expression_node):
         eval1 = self.evaluate_expression(expression_node.dict['op1'])
         eval2 = self.evaluate_expression(expression_node.dict['op2'])
+        # if (type(eval1) is StructObject):
+        #     self.output(f"eval1: {eval1}")
+        # if (type(eval2) is StructObject):
+        #     self.output(f"eval2: {eval2}")
+
+        if (((eval1 is nil and eval2 is not nil) or (eval2 is nil and eval1 is not nil)) 
+            and not ((type(eval1) is StructObject) or (type(eval2) is StructObject))): # Comparing a struct to nil is fine.
+            super().error(ErrorType.TYPE_ERROR, f"Cannot compare type nil unless both are nil",)
         # != and == can compare different types.
         #self.output(f"eval1: {eval1} eval2: {eval2}")
         if (expression_node.elem_type not in ["!=", "=="]) and not (type(eval1) == int and type(eval2) == int):
@@ -516,6 +524,8 @@ class Interpreter(InterpreterBase):
             case '==':
                 if not (type(eval1) == type(eval2)):
                     return False
+                elif (type(eval1) == StructObject) and (type(eval2) == StructObject): # compare by object reference
+                    return (eval1 is eval2)
                 else:
                     return (eval1 == eval2)
             case '>=':
@@ -621,7 +631,10 @@ class Interpreter(InterpreterBase):
 
 # func main() : void {
 #     var c: coordinates;
-#     c = get_coordinates();
+#     var d: coordinates;
+
+#     d = new coordinates;
+#     print(c == nil);
 # }
 
 # """

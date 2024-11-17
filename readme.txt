@@ -20,4 +20,5 @@
 - Fixed for loop not evaluating coercion correctly
 - Added FAULT_ERROR in correct locations.
 - Added error checking for evaluating a void return function in expression (hopefully didnt break anything else)
-- Probably fully fixed fault vs name vs type error in field access
+- Probably fully fixed fault vs name vs type error in field access (75/80 on gradescope!! yippeee)
+- Removed ability to compare to nil (unless one of the args is a struct with no fields (i.e. variable value is nil))

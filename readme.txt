@@ -1,2 +1,4 @@
 - Added default values to vars
 - Added type checking and type coercion (bool->int)
+- Added structs + default field values
+- Added struct field usability (but not assignment)

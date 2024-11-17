@@ -49,16 +49,15 @@ class Interpreter(InterpreterBase):
                 # Return the value, dont need to continue returning.
                 ## check type validity ##
                 self.variable_scope_stack.pop()
-                ret_value = self.check_coercion(eval(func_node.dict['return_type']), return_value) # type coercion bool->int
-                self.check_same_type(eval(func_node.dict['return_type']), type(return_value.get("value")), "func_ret")
+                ret_value = self.check_coercion(func_node.dict['return_type'], return_value) # type coercion bool->int
+                self.check_same_type(func_node.dict['return_type'], type(return_value.get("value")), "func_ret")
                 # self.output(func_node.dict['return_type'])
                 return ret_value
             if return_value is not nil:
                 ## check type validity ##
-                #eval() converts string to python type class (actually cool)
-                return_value = self.check_coercion(eval(func_node.dict['return_type']), return_value) # type coercion bool->int
+                return_value = self.check_coercion(func_node.dict['return_type'], return_value) # type coercion bool->int
                 #self.output(return_value)
-                self.check_same_type(eval(func_node.dict['return_type']), type(return_value), "func_ret")
+                self.check_same_type(func_node.dict['return_type'], type(return_value), "func_ret")
                 break
         
         ### END FUNC SCOPE ###
@@ -107,30 +106,41 @@ class Interpreter(InterpreterBase):
         
     # New in V3
     def assign_default_values(self, statement_node, target_var_name):
-        #self.output(statement_node.dict['var_type'])
-        self.output(statement_node)
-        match statement_node.dict['var_type']:
-            case "int":
-                self.variable_scope_stack[-1][target_var_name] = 0
-            case "bool":
-                self.variable_scope_stack[-1][target_var_name] = False
-            case "string":
-                self.variable_scope_stack[-1][target_var_name] = ""
-            case _:
-                self.variable_scope_stack[-1][target_var_name] = nil
+        var_type = statement_node.dict['var_type']
+        if self.is_struct_type(var_type):
+            self.variable_scope_stack[-1][target_var_name] = {'value': nil, 'type': var_type}
+        else:
+            match var_type:
+                case "int":
+                    self.variable_scope_stack[-1][target_var_name] = {'value': 0, 'type': var_type}
+                case "bool":
+                    self.variable_scope_stack[-1][target_var_name] = {'value': False, 'type': var_type}
+                case "string":
+                    self.variable_scope_stack[-1][target_var_name] = {'value': "", 'type': var_type}
+                case _:
+                    self.variable_scope_stack[-1][target_var_name] = {'value': nil, 'type': var_type}
 
-    def struct_assign_default_values(self, statement_node, field_vars, field):
+    # {} -> {'name' : {'value' : "", 'type' : 'string'}}
+    def struct_assign_default_values(self, fielddef, field_vars):
         #self.output(statement_node.dict['var_type'])
-        self.output(statement_node)
-        match statement_node.dict['var_type']:
-            case "int":
-                field_vars[field] = 0
-            case "bool":
-                field_vars[field] = False
-            case "string":
-                field_vars[field] = ""
-            case _:
-                field_vars[field] = nil
+        var_name = fielddef.dict['name']
+        var_type = fielddef.dict['var_type']
+
+        # self.output(var_type)
+        # self.output(var_name)
+        # self.output(field_vars)
+        if self.is_struct_type(var_type):
+            field_vars[var_name] = {'value': nil, 'type': var_type}
+        else:
+            match var_type:
+                case "int":
+                    field_vars[var_name] = {'value': 0, 'type': var_type}
+                case "bool":
+                    field_vars[var_name] = {'value': False, 'type': var_type}
+                case "string":
+                    field_vars[var_name] = {'value': "", 'type': var_type}
+                case _:
+                    field_vars[var_name] = {'value': nil, 'type': var_type}
 
     def do_assignment(self, statement_node):
         #self.output(statement_node)
@@ -140,13 +150,23 @@ class Interpreter(InterpreterBase):
                 # Does not evaluate until after checking if valid variable
                 source_node = self.get_expression_node(statement_node)
                 resulting_value = self.evaluate_expression(source_node)
-                #self.output(resulting_value)
+                result_type = None
+
+                # only for if resulting value is coming from a struct
+                if type(resulting_value) is tuple:
+                    result_type = resulting_value[1] # Checks for struct type
+                else:
+                    result_type = type(resulting_value).__name__
+                    
+                var_type = scope[target_var_name]['type']
                 ## check type validity ## 
                 #self.output(scope[target_var_name])
-                resulting_value = self.check_coercion(type(scope[target_var_name]), resulting_value) # type coercion bool->int
-                self.check_same_type(type(scope[target_var_name]), type(resulting_value), "assignment")
+
+                ## TODO: fix these type checking still, type(resulting_value) probably not correct?
+                resulting_value = self.check_coercion(var_type, resulting_value) # type coercion bool->int
+                self.check_same_type(var_type, result_type, "assignment")
                 
-                scope[target_var_name] = resulting_value 
+                scope[target_var_name]['value'] = resulting_value 
                 return
         super().error(ErrorType.NAME_ERROR, f"variable used and not declared: {target_var_name}",)
 
@@ -237,10 +257,9 @@ class Interpreter(InterpreterBase):
                 var_type = params[i].dict['var_type']
                 arg_value = self.evaluate_expression(args[i])
                 ## check type validity ##
-                # self.output(eval(var_type))
-                arg_value = self.check_coercion(eval(var_type), arg_value) # type coercion bool->int
-                self.check_same_type(eval(var_type), type(arg_value), "parameter")
-                processed_args[-1][var_name] = arg_value
+                arg_value = self.check_coercion(var_type, arg_value) # type coercion bool->int
+                self.check_same_type(var_type, type(arg_value).__name__, "parameter")
+                processed_args[-1][var_name] = {'value': arg_value, 'type': var_type}
             main_vars = self.variable_scope_stack.copy()
 
             # Scope is only Args
@@ -387,7 +406,7 @@ class Interpreter(InterpreterBase):
         var_name = expression_node.dict['name']
         for scope in reversed(self.variable_scope_stack): 
             if var_name in scope: 
-                val = scope[var_name] 
+                val = scope[var_name]['value']
                 # Error deprecated in V3
                 # if val is None:
                 #     super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' declared but not defined",)
@@ -407,15 +426,15 @@ class Interpreter(InterpreterBase):
         if struct_def is nil:
             super().error(ErrorType.TYPE_ERROR, f"struct '{struct_name}' used but not defined",) ##TODO: FIX ERROR TYPE?
         
-        return self.evaluate_struct_def(struct_def) # do struct assignment
+        # TUPLE to identify the struct-type we're returning (needed for strict type checking)
+        return (self.evaluate_struct_def(struct_def),struct_name) # do struct assignment
 
     # Evalautes a struct def by returning a dict of variables.
     def evaluate_struct_def(self,struct_def):
         field_vars = {}
-
         for fielddef in struct_def.dict['fields']:
-            self.struct_assign_default_values(fielddef, field_vars, fielddef.dict['name'])
-        
+            self.struct_assign_default_values(fielddef, field_vars)
+        #self.output(field_vars)
         return field_vars
 
     # + or -
@@ -495,8 +514,9 @@ class Interpreter(InterpreterBase):
             
     ## Type Checking Functions ##
     # coerce int to bool (if arg1 is type bool)
+    # TODO: coercion might be wrong in doing both (1 && true) and (true && 1)
     def check_coercion(self, arg1, arg2):
-        if (arg1 is bool) and isinstance(arg2, int):
+        if (arg1 == "bool") and isinstance(arg2, int):
             return bool(arg2)
         else:
             return arg2
@@ -508,20 +528,23 @@ class Interpreter(InterpreterBase):
         ### No type coercion from int->bool for now ###
         if area == "assignment":
             if type1 != type2:
-
-                super().error(ErrorType.TYPE_ERROR, f"Type mismatch {type1.__name__} vs {type2.__name__} in assignment",)
+                super().error(ErrorType.TYPE_ERROR, f"Type mismatch {type1} vs {type2} in assignment",)
             else:
                 return
         if area == "parameter":
             if type1 != type2:
-                super().error(ErrorType.TYPE_ERROR, f"Type mismatch on formal parameter with type: {type1.__name__}",)
+                super().error(ErrorType.TYPE_ERROR, f"Type mismatch on formal parameter with type: {type1}",)
             else:
                 return
         if area == "func_ret":
             if type1 != type2:
-                super().error(ErrorType.TYPE_ERROR, f"Function return type {type1.__name__} is inconsistent with function's return type {type2.__name__}",)
+                super().error(ErrorType.TYPE_ERROR, f"Function return type {type1} is inconsistent with function's return type {type2.__name__}",)
             else:
                 return
+
+    # Checks for struct type definition
+    def is_struct_type(self,var_type):
+        return any(struct.dict['name'] == var_type for struct in self.struct_defs)
 
     # No more functions remain... for now... :)
 
@@ -544,7 +567,7 @@ func main() : void {
   test = false;
   var p: Person;
   p = new Person;
-
+  print(p.name);
   print("hi!");
 }
 """

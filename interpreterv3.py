@@ -172,16 +172,15 @@ class Interpreter(InterpreterBase):
                 else:
                     var_type = scope[target_var_name]['type']
                 ## check type validity ## 
-                ## TODO: fix these type checking still, type(resulting_value) probably not correct?
                 resulting_value,result_type = self.check_coercion(var_type, resulting_value, result_type) # type coercion bool->int
                 self.check_same_type(var_type, result_type, "assignment")
                 
                 if is_field_var:
                     # type check the field, not the struct.
                     #self.output(scope[target_var_name]['value'][field]['type'])
-                    scope[target_var_name]['value'][field]['value'] = resulting_value
+                    scope[target_var_name]['value'][field] = {'value' : resulting_value, 'type': result_type}
                 else:
-                    scope[target_var_name]['value'] = resulting_value 
+                    scope[target_var_name] = {'value' : resulting_value, 'type': result_type}
                 
                 return
         super().error(ErrorType.NAME_ERROR, f"variable used and not declared: {target_var_name}",)
@@ -622,24 +621,13 @@ class Interpreter(InterpreterBase):
 
 #DEBUGGING
 program = """
-struct Person {
-  name: string;
-  age: int;
-  student: bool;
-}
 
 func main() : void {
-  var p: Person;
-  p = new Person;
-  p.name = "Carey";
-  p.age = 21;
-  p.student = false;
-  foo(p);
+  var x : bool;
+  x = 1;
+  print(x+2);
 }
 
-func foo(p : Person) : void {
-  print(p.name, " is ", p.age, " years old.");
-}
 """
 interpreter = Interpreter()
 interpreter.run(program)

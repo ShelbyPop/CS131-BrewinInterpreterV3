@@ -8,100 +8,54 @@ nil = Element("nil")
 
 class Interpreter(InterpreterBase):
     def __init__(self, console_output=True, inp=None, trace_output=False):
-        super().__init__(console_output, inp)  
-        self.func_defs = [] # Global Function Def
-        self.struct_defs = [] # Global Struct Def
+        super().__init__(console_output, inp)   # call InterpreterBase's constructor
+        # Since functions (at the top level) can be created anywhere, we'll just do a search for function definitions and assign them 'globally'
+        self.func_defs = []
         self.variable_scope_stack = [{}] # Stack to hold variable scopes
         
     def run(self, program):
         ast = parse_program(program) # returns list of function nodes
-        #self.output(ast) # always good for start of assignment to see new parser
-        self.struct_defs = self.get_struct_defs(ast)
+        self.output(ast) # always good for start of assignment
         self.func_defs = self.get_func_defs(ast)
         main_func_node = self.get_main_func_node(ast)
         self.run_func(main_func_node)
 
     # grabs all globally defined functions to call when needed.
     def get_func_defs(self, ast):
+        # returns functions sub-dict, 'functions' is key
         return ast.dict['functions']
-
-    # grabs all globally defined struct defs
-    def get_struct_defs(self, ast):
-        #for item in ast.dict['structs']:
-            #self.output(item)
-        return ast.dict['structs']
 
     # returns 'main' func node from the dict input.
     def get_main_func_node(self, ast):
+        # checks for function whose name is 'main'
         for func in self.func_defs:
             if func.dict['name'] == "main":
                 return func
+        # define error for 'main' not found.
         super().error(ErrorType.NAME_ERROR, "No main() function was found",)
 
+    # self explanatory
     def run_func(self, func_node):
+        # statements key for sub-dict.
         ### BEGIN FUNC SCOPE ###
         self.variable_scope_stack.append({})
         return_value = nil
-        func_ret_type = func_node.dict['return_type']
-
-
         for statement in func_node.dict['statements']:
             return_value = self.run_statement(statement)
-            #self.output(f"Running statement: {statement}")
-            # Checks if struct returning
-            if isinstance(return_value, tuple):
-                return_type = return_value[1]
-            else:
-                return_type = type(return_value).__name__
-
             # check if statement results in a return, and return a return statement with 
             if isinstance(return_value, Element) and return_value.elem_type == "return":
                 # Return the value, dont need to continue returning.
-                ## check type validity ##
                 self.variable_scope_stack.pop()
-                return_value = self.get_default_ret_value(func_ret_type, return_value.get("value") )
-                return_value,return_type = self.check_coercion(func_ret_type, return_value, return_type) # type coercion bool->int
-                self.check_same_type(func_ret_type, return_type, "func_ret")
-                return return_value
-
+                return return_value.get("value")
             if return_value is not nil:
-                ## check type validity ##
-                return_value = self.get_default_ret_value(func_ret_type, return_value)
-                return_value,return_type = self.check_coercion(func_ret_type, return_value, return_type) # type coercion bool->int
-                #self.output(f"Function returning: {return_value}, whose type is {return_type}")
-                self.check_same_type(func_ret_type, return_type, "func_ret")
                 break
-            else:
-                # return_value is nil:
-                ## check type validity ##
-                return_value = self.get_default_ret_value(func_ret_type, return_value )
-                return_value,return_type = self.check_coercion(func_ret_type, return_value, return_type) # type coercion bool->int
-                self.check_same_type(func_ret_type, return_type, "func_ret")
         
         ### END FUNC SCOPE ###
         self.variable_scope_stack.pop()
         return return_value
     
-    # Used for return value nil;
-    def get_default_ret_value(self, func_type, val):
-        #self.output(f"Assigning a default value, original: {val}")
-        if val is nil:
-            match func_type:
-                case "bool":
-                    return False
-                case "string":
-                    return ""
-                case "int":
-                    return 0
-                case "void":
-                    return nil
-                case _:
-                    return nil
-        return val
-
-
     def run_statement(self, statement_node):
-        #self.output(f"Running statement: {statement_node}")
+        #print(f"Running statement: {statement_node}")
         if self.is_definition(statement_node):
             self.do_definition(statement_node)
         elif self.is_assignment(statement_node):
@@ -121,6 +75,7 @@ class Interpreter(InterpreterBase):
     def is_assignment(self, statement_node):
         return (True if statement_node.elem_type == "=" else False)
     def is_func_call(self, statement_node):
+        
         return (True if statement_node.elem_type == "fcall" else False)
     def is_return_statement(self, statement_node):
         return (True if statement_node.elem_type == "return" else False)
@@ -131,109 +86,21 @@ class Interpreter(InterpreterBase):
 
     def do_definition(self, statement_node):
         # just add to var_name_to_value dict
-        #self.output(statement_node)
         target_var_name = self.get_target_variable_name(statement_node)
-        #self.output(statement_node)
         if target_var_name in self.variable_scope_stack[-1]:
             super().error(ErrorType.NAME_ERROR, f"Variable {target_var_name} defined more than once",)
         else:
-            
-            self.assign_default_values(statement_node,target_var_name)
-            # self.variable_scope_stack[-1][target_var_name] = None  ## DEPRECATED IN V3 ##
+            self.variable_scope_stack[-1][target_var_name] = None
         
-    # New in V3
-    def assign_default_values(self, statement_node, target_var_name):
-        var_type = statement_node.dict['var_type']
-        if self.is_struct_type(var_type):
-            self.variable_scope_stack[-1][target_var_name] = {'value': nil, 'type': var_type}
-        else:
-            match var_type:
-                case "int":
-                    self.variable_scope_stack[-1][target_var_name] = {'value': 0, 'type': var_type}
-                case "bool":
-                    self.variable_scope_stack[-1][target_var_name] = {'value': False, 'type': var_type}
-                case "string":
-                    self.variable_scope_stack[-1][target_var_name] = {'value': "", 'type': var_type}
-                case _:
-                    super().error(ErrorType.TYPE_ERROR, f"Variable type: {var_type} is not supported.",)
-
-    # {} -> {'name' : {'value' : "", 'type' : 'string'}}
-    def struct_assign_default_values(self, fielddef, field_vars):
-        #self.output(statement_node.dict['var_type'])
-        var_name = fielddef.dict['name']
-        var_type = fielddef.dict['var_type']
-
-        # self.output(var_type)
-        # self.output(var_name)
-        # self.output(field_vars)
-        if self.is_struct_type(var_type):
-            field_vars[var_name] = {'value': nil, 'type': var_type}
-        else:
-            match var_type:
-                case "int":
-                    field_vars[var_name] = {'value': 0, 'type': var_type}
-                case "bool":
-                    field_vars[var_name] = {'value': False, 'type': var_type}
-                case "string":
-                    field_vars[var_name] = {'value': "", 'type': var_type}
-                case _:
-                    field_vars[var_name] = {'value': nil, 'type': var_type}
-
     def do_assignment(self, statement_node):
+        
         target_var_name = self.get_target_variable_name(statement_node)
-
-        #Check if assigning to a field
-        is_field_var = False
-        if (self.is_field_var(target_var_name)):
-            is_field_var = True
-            split_var = target_var_name.split('.')
-            target_var_name = split_var[0]
-            fields = split_var[1:]
-
         for scope in reversed(self.variable_scope_stack): 
             if target_var_name in scope: 
                 # Does not evaluate until after checking if valid variable
                 source_node = self.get_expression_node(statement_node)
                 resulting_value = self.evaluate_expression(source_node)
-                result_type = None
-
-                # only for if resulting value is coming from a struct
-                
-                if type(resulting_value) is tuple:
-                    result_type = resulting_value[1] # Checks for struct type
-                    resulting_value = resulting_value[0]
-                else:
-                    result_type = type(resulting_value).__name__
-                self.output(f"RESULTING VALUE: {resulting_value}")
-
-                if is_field_var:
-                    # Walk the dict to find the necessary field (like p.kitty.name) - MULTIDOT SOLVE
-                    current_level = scope[target_var_name]['value']
-                    for field in fields[:-1]: # Traverse all except the last field 
-                        if current_level == nil:
-                            super().error(ErrorType.FAULT_ERROR, f"Field is nil")
-                        if field not in current_level: 
-                            super().error(ErrorType.TYPE_ERROR, f"field '{last_field}' does not exist in struct.")
-                        current_level = current_level[field]['value']
-
-                    last_field = fields[-1]    
-                    if current_level == nil:
-                        super().error(ErrorType.FAULT_ERROR, f"Field is nil")
-                    if last_field not in current_level: 
-                        super().error(ErrorType.TYPE_ERROR, f"field '{last_field}' does not exist in struct.")
-                    var_type = current_level[last_field]['type'] # type check the field, not the struct.
-                else:
-                    var_type = scope[target_var_name]['type']
-                ## check type validity ## 
-                resulting_value,result_type = self.check_coercion(var_type, resulting_value, result_type) # type coercion bool->int
-                self.check_same_type(var_type, result_type, "assignment")
-                
-                if is_field_var:
-                    # type check the field, not the struct.
-                    current_level[last_field] = {'value' : resulting_value, 'type': result_type}
-                else:
-                    scope[target_var_name] = {'value' : resulting_value, 'type': result_type}
-                
+                scope[target_var_name] = resulting_value 
                 return
         super().error(ErrorType.NAME_ERROR, f"variable used and not declared: {target_var_name}",)
 
@@ -256,25 +123,21 @@ class Interpreter(InterpreterBase):
                        )
     
     def do_func_call(self, statement_node):
-        
         func_call = statement_node.dict['name']
-        
         if func_call == "print":
             output = ""
             # loop through each arg in args list for print, evaluate their expressions, concat, and output.
             for arg in statement_node.dict['args']:
-                eval_ = self.evaluate_expression(arg)
-                #self.output(arg)
+                eval = self.evaluate_expression(arg)
                 # note, cant concat unles its str type
-                if type(eval_) is bool:
-                    if eval_:
+                if type(eval) is bool:
+                    if eval:
                         output += "true"
                     else: 
                         output += "false"
                 else:
-                    output += str(eval_)
+                    output += str(self.evaluate_expression(arg))
             # THIS IS 1/3 OF ONLY REAL SELF.OUTPUT
-            #self.output(f"THIS IS A SINGLE OUTPUT ARG: '{output}'")
             self.output(output)
             return nil
         elif func_call == "inputi":
@@ -311,6 +174,7 @@ class Interpreter(InterpreterBase):
                 return user_in
         else:
             ## USER-DEFINED FUNCTION ##
+            # Check if function is defined
             if not self.check_valid_func(func_call):
                 super().error(ErrorType.NAME_ERROR,
                                 f"Function {func_call} was not found",
@@ -319,35 +183,27 @@ class Interpreter(InterpreterBase):
             ##### Start Function Call ######
 
             #### START FUNC SCOPE ####
-            # Assign Arguments:
+            # Assign parameters to the local variable dict
             args = statement_node.dict['args'] # passed in arguments
             params = func_def.dict['args'] # function parameters
             processed_args = [{}]
+            # intialize params, and then assign to them each arg in order
             for i in range(0,len(params)):
+                # define params
                 var_name = params[i].dict['name']
-                var_type = params[i].dict['var_type']
-                arg_value = self.evaluate_expression(args[i])
-                arg_type = self.get_type_of_variable(args[i]) 
-                ## check type validity ##
-                arg_value,arg_type = self.check_coercion(var_type, arg_value,arg_type) # type coercion bool->int
-                self.check_same_type(var_type, arg_type, "parameter")
-
-                processed_args[-1][var_name] = {'value': arg_value, 'type': var_type}
+                processed_args[-1][var_name] = self.evaluate_expression(args[i])
             main_vars = self.variable_scope_stack.copy()
 
-            # Scope is only Args
+            # wipe all prev vars except arguments
             self.variable_scope_stack = processed_args
-            
-            return_value = self.run_func(func_def) # Actual function run
+            return_value = self.run_func(func_def)
             
             #### END FUNC SCOPE ####
             self.variable_scope_stack = main_vars.copy()
-
             return return_value          
             ##### End Function Call ######
     
     def do_return_statement(self, statement_node):
-        #self.output(f"Statement is: {statement_node}")
         if not statement_node.dict['expression']:
             #return 'nil' Element
             return Element("return", value=nil)
@@ -359,9 +215,7 @@ class Interpreter(InterpreterBase):
         condition = statement_node.dict['condition']
         condition = self.evaluate_expression(condition)
         # error if condition is non-boolean
-        
-        condition,cond_type = self.check_coercion("bool", condition, type(condition).__name__)
-        if cond_type != "bool":
+        if type(condition) is not bool:
             super().error(ErrorType.TYPE_ERROR, "Condition is not of type bool",)
         statements = statement_node.dict['statements']
         else_statements = statement_node.dict['else_statements']
@@ -405,7 +259,7 @@ class Interpreter(InterpreterBase):
         
         # Run the loop again (exits on condition false)
         while self.evaluate_expression(condition):
-            if type(self.evaluate_expression(condition)).__name__ != "bool":
+            if type(self.evaluate_expression(condition)) is not bool:
                 super().error(ErrorType.TYPE_ERROR, "Condition is not of type bool",)
             
             ### BEGIN VAR SCOPE ###
@@ -447,12 +301,9 @@ class Interpreter(InterpreterBase):
         return True if (expression_node.elem_type in ['==', '<', '<=', '>', '>=', '!=']) else False
     def is_binary_boolean_operator(self, expression_node):
         return True if (expression_node.elem_type in ['&&', '||']) else False
-    def is_struct_def(self, expression_node):
-        return True if (expression_node.elem_type == "new") else False
 
     # basically pseudcode, self-explanatory
     def evaluate_expression(self, expression_node):
-        #self.output(expression_node)
         if self.is_value_node(expression_node):
             return self.get_value(expression_node)
         elif self.is_variable_node(expression_node):
@@ -467,8 +318,6 @@ class Interpreter(InterpreterBase):
             return self.evaluate_binary_boolean_operator(expression_node)
         elif self.is_func_call(expression_node):
             return self.do_func_call(expression_node)
-        elif self.is_struct_def(expression_node):
-            return self.do_struct_def(expression_node)
 
     def get_value(self, expression_node):
         # Returns value assigned to key 'val'
@@ -476,128 +325,22 @@ class Interpreter(InterpreterBase):
             return nil
         return expression_node.dict['val']
 
-    def is_field_var(self, var_name):
-        return '.' in var_name
-
     # returns value under the variable name provided.
     def get_value_of_variable(self, expression_node): 
-        #self.output(expression_node)
         if expression_node == 'nil':
             return nil
+        
         var_name = expression_node.dict['name']
-        is_field_var  = False
-
-        # Check if field call
-        if (self.is_field_var(var_name)):
-            is_field_var = True
-            split_var = var_name.split('.')
-            var_name = split_var[0]
-            fields = split_var[1:]
-        
-
         for scope in reversed(self.variable_scope_stack): 
             if var_name in scope: 
-
-                vardef = scope[var_name]
-                self.output(scope)
-                val = vardef['value']
-                var_type = vardef['type']
-                if is_field_var:
-                    # Traverse the nested fields to get the target value 
-                    current_level = vardef['value'] # Grabs dict of field vals to variable
-                    #self.output(f"{vardef}")
-                    for field in fields[:-1]: # Traverse all except the last field
-                        if current_level == nil:
-                            super().error(ErrorType.FAULT_ERROR, f"Field is nil")
-                        if field not in current_level: 
-                            super().error(ErrorType.TYPE_ERROR, f"field '{last_field}' does not exist in struct.")
-                        current_level = current_level[field]['value']
-                        
-                    # The last field is where we get the value 
-                    last_field = fields[-1] 
-                    if current_level == nil:
-                        super().error(ErrorType.FAULT_ERROR, f"Field is nil")
-                    if last_field not in current_level: 
-                        self.output(f"Current level: {current_level}, last_field: {last_field}")
-                        super().error(ErrorType.TYPE_ERROR, f"field '{last_field}' does not exist in struct.")
-                    val = current_level[last_field]['value']
-                    var_type = current_level[last_field]['type']
-                    return (val, var_type)
-                elif self.is_struct_type(var_type):
-                    return (val, var_type) # If struct, we need to know which struct
-                
-                #self.output(f"RETURNING: {val}")
-                return val
+                val = scope[var_name] 
+                if val is None:
+                    super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' declared but not defined",)
+                else: 
+                    return val 
         # if varname not found
         super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' used and not declared",)
 
-    def get_type_of_variable(self, expression_node):
-        #self.output(expression_node)
-        # return nil might be wrong for this?
-        if expression_node == 'nil':
-            return nil
-        if 'name' in expression_node.dict:
-            var_name = expression_node.dict['name']
-        else:
-            return type(self.evaluate_expression(expression_node)).__name__
-        is_field_var  = False
-
-        # Check if field call
-        if (self.is_field_var(var_name)):
-            is_field_var = True
-            split_var = var_name.split('.')
-            var_name = split_var[0]
-            fields = split_var[1:]
-        
-
-        for scope in reversed(self.variable_scope_stack): 
-            if var_name in scope: 
-                vardef = scope[var_name]
-                if is_field_var:
-                    # Traverse the nested fields to get the target type 
-                    current_level = vardef['value']
-                    for field in fields[:-1]: # Traverse all except the last field 
-                        if current_level == nil:
-                            super().error(ErrorType.FAULT_ERROR, f"Field is nil")
-                        if field not in current_level: 
-                            super().error(ErrorType.TYPE_ERROR, f"field '{last_field}' does not exist in struct.")
-                        current_level = current_level[field]['value']
-                    # The last field is where we get the type 
-                    last_field = fields[-1] 
-                    if current_level == nil:
-                        super().error(ErrorType.FAULT_ERROR, f"Field is nil")
-                    if last_field not in current_level: 
-                        super().error(ErrorType.TYPE_ERROR, f"field '{last_field}' does not exist in struct.")
-                    _type = current_level[last_field]['type']
-                else:
-                    _type = vardef['type']
-                return _type
-        # if varname not found
-        super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' used and not declared",)
-
-
-    def do_struct_def(self,expression_node):
-        struct_name = expression_node.dict['var_type']
-        # find the struct def
-        struct_def = nil
-        for _def in self.struct_defs:
-            struct_def = _def if (_def.dict['name'] == struct_name) else nil
-            if (struct_def is not nil):
-                break
-        # if we never found a struct_def
-        if struct_def is nil:
-            super().error(ErrorType.TYPE_ERROR, f"struct '{struct_name}' used but not defined",) ##TODO: FIX ERROR TYPE?
-        
-        # TUPLE to identify the struct-type we're returning (needed for strict type checking)
-        return (self.evaluate_struct_def(struct_def),struct_name) # do struct assignment
-
-    # Evalautes a struct def by returning a dict of variables.
-    def evaluate_struct_def(self,struct_def):
-        field_vars = {}
-        for fielddef in struct_def.dict['fields']:
-            self.struct_assign_default_values(fielddef, field_vars)
-        #self.output(field_vars)
-        return field_vars
 
     # + or -
     def evaluate_binary_operator(self, expression_node):
@@ -663,11 +406,7 @@ class Interpreter(InterpreterBase):
     def evaluate_binary_boolean_operator(self, expression_node):
         eval1 = self.evaluate_expression(expression_node.dict['op1'])
         eval2 = self.evaluate_expression(expression_node.dict['op2'])
-        # coerce both ways
-        eval1,eval1_type = self.check_coercion(type(eval2).__name__, eval1, type(eval1).__name__)
-        eval2,eval2_type = self.check_coercion(type(eval1).__name__, eval2, type(eval2).__name__)
-
-        if (eval1_type != "bool") or (eval2_type != "bool"):
+        if (type(eval1) is not bool) or (type(eval2) is not bool):
             super().error(ErrorType.TYPE_ERROR, f"Comparison args for {expression_node.elem_type} must be of same type bool.",)
         # forces evaluation on both (strict evaluation)
         eval1 = bool(eval1)
@@ -677,72 +416,16 @@ class Interpreter(InterpreterBase):
                 return (eval1 and eval2)
             case '||':
                 return (eval1 or eval2)
-            
-    ## Type Checking Functions ##
-    # coerce int to bool (if arg1 is type bool)
-    # TODO: coercion might be wrong in doing both (1 && true) and (true && 1)
-    def check_coercion(self, arg1, arg2, arg2_type):
-        if (arg1 == "bool") and (arg2_type == "int"):
-            arg2_type = "bool"
-            return (bool(arg2),arg2_type)
-        else:
-            return (arg2,arg2_type)
-
-    # type1 - var type, param type, func return type
-    # type2 - value/expression type
-    def check_same_type(self, type1, type2, area):
-        if (type1) == "str":
-            type1 = "string"
-        if (type2) == "str":
-            type2 = "string"
-        
-        if area == "assignment":
-            if type1 != type2:
-                super().error(ErrorType.TYPE_ERROR, f"Type mismatch {type1} vs {type2} in assignment",)
-            else:
-                return
-        if area == "parameter":
-            if type1 != type2:
-                #self.output(f"type1: {type1} type2: {type2}")
-                super().error(ErrorType.TYPE_ERROR, f"Type mismatch on formal parameter with type: {type1}",)
-            else:
-                return
-        if area == "func_ret":
-            # void is fine with 'element' (only occurs with nil)
-            if type2 == "Element":
-                return
-            elif type1 != type2:
-                super().error(ErrorType.TYPE_ERROR, f"Function return type {type1} is inconsistent with function's return type {type2}",)
-            else:
-                return
-
-    # Checks for struct type definition
-    def is_struct_type(self,var_type):
-        return any(struct.dict['name'] == var_type for struct in self.struct_defs)
-
     # No more functions remain... for now... :)
 
 #DEBUGGING
 program = """
-struct dog {
- bark: int;
- bite: int;
+func foo(a : int) : int {
+  return (a+1);
 }
-
-func foo(d: dog) : dog {  /* d holds the same object reference that the koda variable holds */
-  /*d.bark = 10;*/
-  print(d.bark);
-  return d;
+func main() : void {
+	print(foo(6));
 }
-
- func main() : void {
-  var koda: dog;
-  var kippy: dog;
-  koda = new dog;
-  kippy = foo(koda);	/* kippy holds the same object reference as koda */
-  print(kippy.bark);
-}
-
 """
 interpreter = Interpreter()
 interpreter.run(program)

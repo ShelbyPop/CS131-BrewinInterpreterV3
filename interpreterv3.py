@@ -42,6 +42,8 @@ class Interpreter(InterpreterBase):
         ### BEGIN FUNC SCOPE ###
         self.variable_scope_stack.append({})
         return_value = nil
+        func_ret_type = func_node.dict['return_type']
+
         for statement in func_node.dict['statements']:
             return_value = self.run_statement(statement)
             # check if statement results in a return, and return a return statement with 
@@ -49,19 +51,45 @@ class Interpreter(InterpreterBase):
                 # Return the value, dont need to continue returning.
                 ## check type validity ##
                 self.variable_scope_stack.pop()
-                ret_value,ret_type = self.check_coercion(func_node.dict['return_type'], return_value, type(return_value.get("value")).__name__) # type coercion bool->int
-                self.check_same_type(func_node.dict['return_type'], ret_type, "func_ret")
-                return ret_value
+                return_value = self.get_default_ret_value(func_ret_type, return_value.get("value") )
+                return_value,ret_type = self.check_coercion(func_ret_type, return_value, type(return_value).__name__) # type coercion bool->int
+                self.check_same_type(func_ret_type, ret_type, "func_ret")
+                return return_value
+
             if return_value is not nil:
                 ## check type validity ##
-                return_value,return_type = self.check_coercion(func_node.dict['return_type'], return_value, type(return_value).__name__) # type coercion bool->int
-                self.check_same_type(func_node.dict['return_type'], return_type, "func_ret")
+                return_value = self.get_default_ret_value(func_ret_type, return_value)
+                return_value,return_type = self.check_coercion(func_ret_type, return_value, type(return_value).__name__) # type coercion bool->int
+                self.check_same_type(func_ret_type, return_type, "func_ret")
                 break
+            else:
+                # return_value is nil:
+                return_value = self.get_default_ret_value(func_ret_type, return_value )
+                return_value,return_type = self.check_coercion(func_ret_type, return_value, type(return_value).__name__) # type coercion bool->int
+                self.check_same_type(func_ret_type, return_type, "func_ret")
         
         ### END FUNC SCOPE ###
         self.variable_scope_stack.pop()
         return return_value
     
+    # Used for return value nil;
+    def get_default_ret_value(self, func_type, val):
+        #self.output(f"Assigning a default value, original: {val}")
+        if val is nil:
+            match func_type:
+                case "bool":
+                    return False
+                case "string":
+                    return ""
+                case "int":
+                    return 0
+                case "void":
+                    return nil
+                case _:
+                    return nil
+        return val
+
+
     def run_statement(self, statement_node):
         #print(f"Running statement: {statement_node}")
         if self.is_definition(statement_node):
@@ -93,6 +121,7 @@ class Interpreter(InterpreterBase):
 
     def do_definition(self, statement_node):
         # just add to var_name_to_value dict
+        #self.output(statement_node)
         target_var_name = self.get_target_variable_name(statement_node)
         #self.output(statement_node)
         if target_var_name in self.variable_scope_stack[-1]:
@@ -116,7 +145,7 @@ class Interpreter(InterpreterBase):
                 case "string":
                     self.variable_scope_stack[-1][target_var_name] = {'value': "", 'type': var_type}
                 case _:
-                    self.variable_scope_stack[-1][target_var_name] = {'value': nil, 'type': var_type}
+                    super().error(ErrorType.TYPE_ERROR, f"Variable type: {var_type} is not supported.",)
 
     # {} -> {'name' : {'value' : "", 'type' : 'string'}}
     def struct_assign_default_values(self, fielddef, field_vars):
@@ -149,7 +178,7 @@ class Interpreter(InterpreterBase):
             is_field_var = True
             split_var = target_var_name.split('.')
             target_var_name = split_var[0]
-            field = split_var[1]
+            fields = split_var[1:]
 
         for scope in reversed(self.variable_scope_stack): 
             if target_var_name in scope: 
@@ -166,9 +195,13 @@ class Interpreter(InterpreterBase):
                     result_type = type(resulting_value).__name__
                 
                 if is_field_var:
-                    # type check the field, not the struct.
-                    #self.output(scope[target_var_name]['value'][field]['type'])
-                    var_type = scope[target_var_name]['value'][field]['type']
+                    # Walk the dict to find the necessary field (like p.kitty.name) - MULTIDOT SOLVE
+                    current_level = scope[target_var_name]['value']
+                    for field in fields[:-1]: # Traverse all except the last field 
+                        current_level = current_level[field]['value']
+
+                    last_field = fields[-1]    
+                    var_type = current_level[last_field]['type'] # type check the field, not the struct.
                 else:
                     var_type = scope[target_var_name]['type']
                 ## check type validity ## 
@@ -177,8 +210,7 @@ class Interpreter(InterpreterBase):
                 
                 if is_field_var:
                     # type check the field, not the struct.
-                    #self.output(scope[target_var_name]['value'][field]['type'])
-                    scope[target_var_name]['value'][field] = {'value' : resulting_value, 'type': result_type}
+                    current_level[last_field] = {'value' : resulting_value, 'type': result_type}
                 else:
                     scope[target_var_name] = {'value' : resulting_value, 'type': result_type}
                 
@@ -204,12 +236,15 @@ class Interpreter(InterpreterBase):
                        )
     
     def do_func_call(self, statement_node):
+        
         func_call = statement_node.dict['name']
+        
         if func_call == "print":
             output = ""
             # loop through each arg in args list for print, evaluate their expressions, concat, and output.
             for arg in statement_node.dict['args']:
                 eval_ = self.evaluate_expression(arg)
+                #self.output(arg)
                 # note, cant concat unles its str type
                 if type(eval_) is bool:
                     if eval_:
@@ -217,8 +252,9 @@ class Interpreter(InterpreterBase):
                     else: 
                         output += "false"
                 else:
-                    output += str(self.evaluate_expression(arg))
+                    output += str(eval_)
             # THIS IS 1/3 OF ONLY REAL SELF.OUTPUT
+            #self.output(f"THIS IS A SINGLE OUTPUT ARG: '{output}'")
             self.output(output)
             return nil
         elif func_call == "inputi":
@@ -281,6 +317,7 @@ class Interpreter(InterpreterBase):
 
             # Scope is only Args
             self.variable_scope_stack = processed_args
+            
             return_value = self.run_func(func_def) # Actual function run
             
             #### END FUNC SCOPE ####
@@ -433,14 +470,20 @@ class Interpreter(InterpreterBase):
             is_field_var = True
             split_var = var_name.split('.')
             var_name = split_var[0]
-            field = split_var[1]
+            fields = split_var[1:]
         
 
         for scope in reversed(self.variable_scope_stack): 
             if var_name in scope: 
                 val = scope[var_name]['value']
                 if is_field_var:
-                    val = val[field]['value']
+                    # Traverse the nested fields to get the target value 
+                    current_level = val
+                    for field in fields[:-1]: # Traverse all except the last field
+                        current_level = current_level[field]['value']
+                    # The last field is where we get the value 
+                    last_field = fields[-1] 
+                    val = current_level[last_field]['value']
     
                 return val 
         # if varname not found
@@ -462,14 +505,20 @@ class Interpreter(InterpreterBase):
             is_field_var = True
             split_var = var_name.split('.')
             var_name = split_var[0]
-            field = split_var[1]
+            fields = split_var[1:]
         
 
         for scope in reversed(self.variable_scope_stack): 
             if var_name in scope: 
                 vardef = scope[var_name]
                 if is_field_var:
-                    _type = vardef['value'][field]['type']
+                    # Traverse the nested fields to get the target type 
+                    current_level = vardef['value']
+                    for field in fields[:-1]: # Traverse all except the last field 
+                        current_level = current_level[field]['value']
+                    # The last field is where we get the type 
+                    last_field = fields[-1] 
+                    _type = current_level[last_field]['type']
                 else:
                     _type = vardef['type']
                 return _type
@@ -603,13 +652,16 @@ class Interpreter(InterpreterBase):
                 return
         if area == "parameter":
             if type1 != type2:
-                self.output(f"type1: {type1} type2: {type2}")
+                #self.output(f"type1: {type1} type2: {type2}")
                 super().error(ErrorType.TYPE_ERROR, f"Type mismatch on formal parameter with type: {type1}",)
             else:
                 return
         if area == "func_ret":
-            if type1 != type2:
-                super().error(ErrorType.TYPE_ERROR, f"Function return type {type1} is inconsistent with function's return type {type2.__name__}",)
+            # void is fine with 'element' (only occurs with nil)
+            if type2 == "Element":
+                return
+            elif type1 != type2:
+                super().error(ErrorType.TYPE_ERROR, f"Function return type {type1} is inconsistent with function's return type {type2}",)
             else:
                 return
 
@@ -621,11 +673,31 @@ class Interpreter(InterpreterBase):
 
 #DEBUGGING
 program = """
+struct dog {
+  bark: int;
+  bite: int;
+}
+
+func bar() : int {
+  return;  /* no return value specified - returns 0 */
+}
+
+func bletch() : bool {
+  print("hi");
+  /* no explicit return; bletch must return default bool of false */
+}
+
+func boing() : dog {
+  return;  /* returns nil */
+}
 
 func main() : void {
-  var x : bool;
-  x = 1;
-  print(x+2);
+   var val: int;
+   val = bar();
+   print(val);  /* prints 0 */
+   print(bletch()); /* prints false */
+   print(boing()); /* prints nil */
+
 }
 
 """

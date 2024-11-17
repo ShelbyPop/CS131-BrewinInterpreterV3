@@ -59,9 +59,13 @@ class Interpreter(InterpreterBase):
                 return_value = return_value.get("value")
                 # Perform type checking
                 if return_value is nil:
-                    return self.get_default_value(func_ret_type)
+                    return_value = self.get_default_value(func_ret_type)
+                    self.output(f"return value is: {return_value}, function return type is: {func_ret_type}")
+
+                if func_ret_type == "bool":
+                    return_value = self.check_coercion(return_value)
                 if not self.check_valid_type(return_value, func_ret_type):
-                    self.output(return_value)
+                    #self.output(return_value)
                     super().error(ErrorType.TYPE_ERROR, f"Return type misaligns with functions return type: {func_ret_type}",)
                 return return_value
             if return_value is not nil:
@@ -239,6 +243,8 @@ class Interpreter(InterpreterBase):
                 var_name = params[i].dict['name']
                 var_type = params[i].dict['var_type']
                 arg_value = self.evaluate_expression(args[i])
+                #self.output(args[i])
+                arg_value = self.check_coercion(arg_value) if var_type == "bool" else arg_value
                 # Perform Type Checking..
                 if self.check_valid_type(arg_value, var_type):
                     processed_args[-1][var_name] = {
@@ -270,8 +276,10 @@ class Interpreter(InterpreterBase):
     def do_if_statement(self, statement_node):
         condition = statement_node.dict['condition']
         condition = self.evaluate_expression(condition)
+        if type(condition).__name__ == "int":
+            condition = self.check_coercion(condition)
         # error if condition is non-boolean
-        if type(condition) is not bool:
+        if type(condition).__name__ != "bool":
             super().error(ErrorType.TYPE_ERROR, "Condition is not of type bool",)
         statements = statement_node.dict['statements']
         else_statements = statement_node.dict['else_statements']
@@ -315,6 +323,8 @@ class Interpreter(InterpreterBase):
         
         # Run the loop again (exits on condition false)
         while self.evaluate_expression(condition):
+            if type(condition).__name__ == "int":
+                condition = self.check_coercion(condition)
             if type(self.evaluate_expression(condition)) is not bool:
                 super().error(ErrorType.TYPE_ERROR, "Condition is not of type bool",)
             
@@ -430,7 +440,9 @@ class Interpreter(InterpreterBase):
                 super().error(ErrorType.TYPE_ERROR, "'negation' can only be used on integer values.",)
             return -(eval)
         if expression_node.elem_type == "!":
-            if not (type(eval) == bool):
+            if type(eval).__name__ == "int":
+                eval = self.check_coercion(eval)
+            if not (type(eval).__name__ == "bool"):
                 super().error(ErrorType.TYPE_ERROR, "'Not' can only be used on boolean values.",)
             return not (eval)
         
@@ -465,6 +477,9 @@ class Interpreter(InterpreterBase):
     def evaluate_binary_boolean_operator(self, expression_node):
         eval1 = self.evaluate_expression(expression_node.dict['op1'])
         eval2 = self.evaluate_expression(expression_node.dict['op2'])
+        eval1 = self.check_coercion(eval1) if type(eval2).__name__ == "bool" else eval1
+        eval2 = self.check_coercion(eval2) if type(eval1).__name__ == "bool" else eval2
+        
         if (type(eval1) is not bool) or (type(eval2) is not bool):
             super().error(ErrorType.TYPE_ERROR, f"Comparison args for {expression_node.elem_type} must be of same type bool.",)
         # forces evaluation on both (strict evaluation)
@@ -508,23 +523,29 @@ class Interpreter(InterpreterBase):
             return (val is nil) or (type(val) is dict)
         return False
     
+    def check_coercion(self, val):
+        if type(val).__name__ == "int":
+            return bool(val)
+        else:
+            return val
 
     # No more functions remain... for now... :)
 
 #DEBUGGING
 program = """
 func main() : void {
-  print(foo());
-  print(bar());
+  print(5 || false);
+  var a:int;
+  a = 1;
+  if (a) {
+    print("if works on integers now!");
+  }
+  foo(a-1);
 }
 
-func foo() : int {
-  return; /* returns 0 */
+func foo(b : bool) : void {
+  print(b);
 }
-
-func bar() : bool {
-  print("bar");
-}  /* returns false*/
 """
 interpreter = Interpreter()
 interpreter.run(program)

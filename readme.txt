@@ -22,3 +22,6 @@
 - Added error checking for evaluating a void return function in expression (hopefully didnt break anything else)
 - Probably fully fixed fault vs name vs type error in field access (75/80 on gradescope!! yippeee)
 - Removed ability to compare to nil (unless one of the args is a struct with no fields (i.e. variable value is nil))
+- Added Type coercion to comparison (== and != only)
+    - Added type checking to == (maybe not needed?) Without, 77/80, with: 70/80 (fail test_challenge 1-4, struct3, struct_cmp1&2)
+- Fixed Coercion for && || operators (before only did 1 arg if other was bool, now does both no matter what)

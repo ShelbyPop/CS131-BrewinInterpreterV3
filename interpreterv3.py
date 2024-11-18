@@ -57,7 +57,7 @@ class Interpreter(InterpreterBase):
         self.variable_scope_stack.append({})
         return_value = nil
         func_ret_type = func_node.dict['return_type']
-
+        
         for statement in func_node.dict['statements']:
             return_value = self.run_statement(statement)
             # check if statement results in a return, and return a return statement with 
@@ -67,8 +67,6 @@ class Interpreter(InterpreterBase):
                 return_value = return_value.get("value")
                 return_value = self.do_func_typecheck(func_ret_type, return_value) # Perform type checking
                 return return_value
-            if return_value is not nil:
-                break
         
         ### END FUNC SCOPE ###
         self.variable_scope_stack.pop()
@@ -190,7 +188,7 @@ class Interpreter(InterpreterBase):
                 return func
         # Already check if func exists before calling
         # So, must not have correct args.
-        self.output(func_call)
+        #self.output(func_call)
         super().error(ErrorType.NAME_ERROR,
                        f"Incorrect amount of arguments given: {arg_len} ",
                        )
@@ -504,10 +502,8 @@ class Interpreter(InterpreterBase):
     def evaluate_comparison_operator(self, expression_node):
         eval1 = self.evaluate_expression(expression_node.dict['op1'])
         eval2 = self.evaluate_expression(expression_node.dict['op2'])
-        # if (type(eval1) is StructObject):
-        #     self.output(f"eval1: {eval1}")
-        # if (type(eval2) is StructObject):
-        #     self.output(f"eval2: {eval2}")
+        eval1 = self.check_coercion(eval1) if type(eval2) is bool else eval1
+        eval2 = self.check_coercion(eval2) if type(eval1) is bool else eval2
 
         if (((eval1 is nil and eval2 is not nil) or (eval2 is nil and eval1 is not nil)) 
             and not ((type(eval1) is StructObject) or (type(eval2) is StructObject))): # Comparing a struct to nil is fine.
@@ -516,15 +512,18 @@ class Interpreter(InterpreterBase):
         #self.output(f"eval1: {eval1} eval2: {eval2}")
         if (expression_node.elem_type not in ["!=", "=="]) and not (type(eval1) == int and type(eval2) == int):
             super().error(ErrorType.TYPE_ERROR, f"Comparison args for {expression_node.elem_type} must be of same type int.",)
+        # TODO Remove or edit next 2 lines?
+        #if (expression_node.elem_type in ["!=", "=="]) and not (type(eval1) ==  type(eval2)):
+        #    super().error(ErrorType.TYPE_ERROR, f"Comparison args for {expression_node.elem_type} must be of same type.",)
         match expression_node.elem_type:
             case '<':
                 return (eval1 < eval2)
             case '<=':
                 return (eval1 <= eval2)
             case '==':
-                if not (type(eval1) == type(eval2)):
-                    return False
-                elif (type(eval1) == StructObject) and (type(eval2) == StructObject): # compare by object reference
+                eval1 = self.check_coercion(eval1) if type(eval2) is bool else eval1
+                eval2 = self.check_coercion(eval2) if type(eval1) is bool else eval2
+                if (type(eval1) == StructObject) and (type(eval2) == StructObject): # compare by object reference
                     return (eval1 is eval2)
                 else:
                     return (eval1 == eval2)
@@ -533,16 +532,18 @@ class Interpreter(InterpreterBase):
             case '>':
                 return (eval1 > eval2)
             case '!=': 
-                if not (type(eval1) == type(eval2)):
-                    return True
+                eval1 = self.check_coercion(eval1) if type(eval2) is bool else eval1
+                eval2 = self.check_coercion(eval2) if type(eval1) is bool else eval2
+                if (type(eval1) == StructObject) and (type(eval2) == StructObject):
+                    return (eval1 is not eval2)
                 else:
                     return (eval1 != eval2)
     
     def evaluate_binary_boolean_operator(self, expression_node):
         eval1 = self.evaluate_expression(expression_node.dict['op1'])
         eval2 = self.evaluate_expression(expression_node.dict['op2'])
-        eval1 = self.check_coercion(eval1) if type(eval2).__name__ == "bool" else eval1
-        eval2 = self.check_coercion(eval2) if type(eval1).__name__ == "bool" else eval2
+        eval1 = self.check_coercion(eval1)
+        eval2 = self.check_coercion(eval2)
         
         if (type(eval1) is not bool) or (type(eval2) is not bool):
             super().error(ErrorType.TYPE_ERROR, f"Comparison args for {expression_node.elem_type} must be of same type bool.",)
@@ -611,32 +612,21 @@ class Interpreter(InterpreterBase):
         if func_ret_type == "bool":
             return_value = self.check_coercion(return_value)
         if not self.check_valid_type(return_value, func_ret_type):
+            #self.output(f"return type: {func_ret_type}, returns value: {return_value}")
             super().error(ErrorType.TYPE_ERROR, f"Return type misaligns with functions return type: {func_ret_type}",)
         return return_value
     # No more functions remain... for now... :)
 
 #DEBUGGING
-# program = """
-# struct coordinates {
-#     x: int;
-#     y: int;
-# }
+program = """
+func main(): void {
+ foo(5+3);
+}
 
-# func get_coordinates() : coordinates {
-#     var coord: coordinates;
-#     coord = new coordinates;
-#     coord.z = 10; 
-#     return coord;
-# }
+func foo(xx: int): int {
+  print(xx);
+}
 
-# func main() : void {
-#     var c: coordinates;
-#     var d: coordinates;
-
-#     d = new coordinates;
-#     print(c == nil);
-# }
-
-# """
-# interpreter = Interpreter()
-# interpreter.run(program)
+"""
+interpreter = Interpreter()
+interpreter.run(program)
